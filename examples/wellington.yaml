@@ -1,0 +1,51 @@
+# WaterForge field mapping: Wellington City water supply, Wellington Water open data.
+# Data: https://data-wellingtonwater.opendata.arcgis.com/ (EPSG:2193), exported weekly
+# from InfoNet. Credit Wellington Water; not for commercial use or detailed design.
+# Pipes record the asset at each end (start_node_id / end_node_id), so the node-id
+# rules (WG-14, WG-15) run too.
+
+pipes:
+  - layer: pipes
+    # mains only: service connections, fire services and discharge pipes left out
+    where: >-
+      TRIM(operational_status) = 'In Use'
+      AND pipe_type IN ('Main', 'RIderMain', 'Trunk Main', 'Transmission Main')
+    id: asset_id
+    diameter: diameter_mm
+    material: material
+    start_node: start_node_id
+    end_node: end_node_id
+
+fittings:
+  - layer: fittings
+    where: "TRIM(operational_status) = 'In Use'"
+    id: asset_id
+    type:
+      field: type
+      values: {Dead End: end cap, Tee: tee, Joint: joint, Bend: bend, Reducer: reducer,
+               Flexible Joint: joint, Tapping Band: tapping band}
+      default: other
+
+valves:
+  - layer: valves
+    where: "TRIM(operational_status) = 'In Use'"
+    id: asset_id
+    closed: {field: valve_status, values: [Closed]}
+
+hydrants:
+  - layer: hydrants
+    where: "TRIM(operational_status) = 'In Use'"
+    id: asset_id
+
+structures:
+  - layer: tanks
+    where: "TRIM(operational_status) = 'In Use'"
+    id: asset_id
+    type:
+      field: type
+      values: {Reservoir: reservoir, TANK: tank}
+      default: other              # EMTK: emergency tanks, not a supply source
+  - layer: pump_stations
+    where: "TRIM(operational_status) = 'In Use'"
+    id: asset_id
+    type: pump station

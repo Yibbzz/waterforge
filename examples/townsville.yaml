@@ -1,0 +1,45 @@
+# WaterForge field mapping: Townsville City Council water supply open data (CC BY 4.0).
+# Data: https://data-tsvcitycouncil.opendata.arcgis.com/ (EPSG:7855). Download the
+# layers into one GeoPackage with these layer names (see tests/realdata/README.md).
+# Type codes come from each ArcGIS layer's `types` (e.g. fittings 3103 = end cap).
+
+pipes:
+  - layer: mains
+    where: "NOTINUSE = 'N' OR NOTINUSE IS NULL"
+    id: ASSET_NUMBER
+    diameter: PIPE_SIZE          # text, e.g. "150" or "1000+"
+    material: PIPE_MAT
+
+fittings:
+  - layer: fittings
+    where: "NOTINUSE = 'N' OR NOTINUSE IS NULL"
+    id: ASSET_NUMBER
+    type:
+      field: USER_TYPE
+      values: {3103: end cap, 3101: tee, 3102: cross, 3108: joint, 3123: joint,
+               3151: tapping band}
+      default: other
+
+valves:
+  - layer: system_valves
+    where: "NOTINUSE = 'N' OR NOTINUSE IS NULL"
+    id: ASSET_NUMBER
+    closed: {field: NORMALPOSITION, values: [0]}
+  - layer: control_valves
+    where: "NOTINUSE = 'N' OR NOTINUSE IS NULL"
+    id: ASSET_NUMBER
+
+hydrants:
+  - layer: hydrants
+    where: "NOTINUSE = 'N' OR NOTINUSE IS NULL"
+    id: ASSET_NUMBER
+
+structures:
+  - layer: structures
+    where: "NOTINUSE = 'N' OR NOTINUSE IS NULL"
+    id: ASSET_NUMBER
+    type:
+      field: DESCRIPT
+      values: {RESERVOIR: reservoir, WATER_TANK: tank, WATER_TOWER: tank,
+               BOOSTER_PUMP: pump station}
+      default: other

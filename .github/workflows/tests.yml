@@ -1,0 +1,74 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 3 * * *"  # nightly, 03:00 UTC
+  workflow_dispatch:     # "Run workflow" button in the Actions tab
+
+jobs:
+  offline:
+    name: Lint + offline tests (with the EPANET referee)
+    runs-on: ubuntu-latest
+    env:
+      HYPOTHESIS_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      # Includes tests/unit/test_agreement.py: the engine and EPANET 2.3.5 must agree.
+      - name: Offline tests with coverage
+        run: uv run pytest --cov --cov-report=term
+      - name: Coverage summary
+        if: always()
+        run: uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+
+  windows:
+    name: Offline tests on Windows
+    # Most QGIS users are on Windows; owa-epanet ships its own EPANET there.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      HYPOTHESIS_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Offline tests
+        run: uv run pytest
+
+  realdata:
+    name: Whole cities + deep property tests
+    # Downloads Townsville's and Wellington's open data (never committed) and checks the
+    # regression baseline from open-water-checks. Slow and depends on two councils' servers.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Download the cities' open data
+        run: uv run python -m tests.realdata.download data
+      - name: Whole-city tests
+        env:
+          WATERFORGE_DATA: data
+        run: uv run pytest -m realdata -v
+      - name: Property tests (500 examples)
+        if: always()
+        env:
+          HYPOTHESIS_PROFILE: thorough
+        run: uv run pytest tests/integration/test_properties.py -v

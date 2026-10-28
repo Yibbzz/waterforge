@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# downloaded city data and outputs: never committed (Wellington's terms)
+data/
+*.inp
+*.rpt
+issues.gpkg
+report.json
+# EPANET scratch files
+/en??????
