@@ -10,7 +10,7 @@ InfoNet export with recorded node ids).
 
 ## Layers
 
-Five asset kinds, each a list of layers (a utility with two valve layers lists both):
+Seven asset kinds, each a list of layers (a utility with two valve layers lists both):
 
 ```yaml
 pipes:                       # lines; at least one pipe layer is required
@@ -30,14 +30,31 @@ fittings:                    # points
       values: {3103: end cap, 3101: tee, 3102: cross}
       default: other         # values not listed; leave out to report them (WG-09)
 
-valves:
+valves:                      # points, or lines drawn as links
   - layer: system_valves
     id: ASSET_NUMBER
     closed: {field: NORMALPOSITION, values: [0]}   # which values mean normally closed
+    type:                    # isolation (the default), prv, psv, pbv, fcv, tcv
+      field: VALVE_TYPE
+      values: {PRV: prv, SV: isolation}
+      default: isolation
+    setting: SETTING         # control valves: pressure (m) or flow (L/s), as EPANET
 
 hydrants:
   - layer: hydrants
     id: ASSET_NUMBER
+    elevation: GROUND_RL     # any point layer may give an elevation (the Solves level)
+
+junctions:                   # optional points at pipe ends: elevations and demands
+  - layer: nodes
+    id: NODE_ID
+    elevation: ELEVATION
+    demand: BASE_DEMAND      # L/s
+
+pumps:                       # points, or lines drawn as links
+  - layer: pumps
+    id: PUMP_ID
+    power: POWER_KW          # kW; pump curves aren't read yet
 
 structures:                  # tanks, reservoirs, pump stations, ...
   - layer: structures
@@ -46,15 +63,36 @@ structures:                  # tanks, reservoirs, pump stations, ...
       field: DESCRIPT
       values: {RESERVOIR: reservoir, WATER_TANK: tank, BOOSTER_PUMP: pump station}
       default: other
+    head: TWL                # a reservoir's head (m above datum)
+    elevation: FLOOR_RL      # a tank: elevation, init_level, min_level, max_level and
+    init_level: INIT         # tank_diameter make it an EPANET tank; with fewer it is a
+    min_level: BWL           # reservoir (head = head, else elevation + init_level)
+    max_level: TWL_DEPTH
+    tank_diameter: DIAMETER
   - layer: pump_stations
     type: pump station       # one type for the whole layer
 ```
 
+**Number fields** (`elevation`, `demand`, `roughness`, `setting`, `power`, `head`, the levels
+and `tank_diameter`) are read as numbers; a value that isn't one is reported (WG-09) and
+treated as missing. Pipes may also map `roughness` (Hazen-Williams C; 130 when missing).
+
+**Valves and pumps as lines.** A utility or a model may draw valves and pumps as short lines
+between nodes instead of points. Either works: a line's ends join the pipe ends and sources
+they touch (within the tolerance). Open isolation valves aren't in the model either way.
+
 - `layer` is required; everything else is optional. A layer can be given by name alone:
   `hydrants: [hydrants]`.
-- `where` is passed to GDAL, so it works the same on GeoPackage, PostGIS and FileGDB. Use it to
-  keep only assets in use. Removed and abandoned assets left in the layers would otherwise be
-  checked as if they were in the ground.
+- `where` is passed to GDAL (or to PostgreSQL for PostGIS), so it works the same on
+  GeoPackage, PostGIS and FileGDB. Use it to keep only assets in use. Removed and abandoned
+  assets left in the layers would otherwise be checked as if they were in the ground. A
+  proposal doesn't apply it: everything proposed is meant to be in use.
+- Field names match regardless of capitals when only one field does (loading data into
+  PostgreSQL usually lowercases them: `ASSET_NUMBER` becomes `asset_number`).
+- **PostGIS:** `--network "PG:host=db port=5432 dbname=water user=gis"` (a libpq connection
+  string; the password can come from `~/.pgpass` or `PGPASSWORD`). Layers are tables or views
+  with a geometry column, named `table` or `schema.table`. Needs `waterforge[postgis]`
+  (psycopg): the GDAL inside pyogrio's packages has no PostgreSQL driver.
 - `id`: without it, features are named by row number. Ids should be unique within a layer; the
   engine warns when they aren't.
 - Values are compared as text, ignoring case and surrounding spaces, and `3103.0` matches
@@ -64,6 +102,13 @@ structures:                  # tanks, reservoirs, pump stations, ...
   sources that feed the network.
 - Every problem in the mapping is listed at once (exit code 3), including fields a layer
   doesn't have, with a suggestion when only the capitals differ.
+
+## Proposals
+
+A proposed change (`check --proposed`) uses the same mapping. Its file may hold only some of
+the layers. A feature whose id matches an existing feature in the same layer replaces it; a
+field named `remove` (any capitals; the name is `remove_field` in the settings) set to yes,
+true or 1 removes it; new ids are added. See [rules.md](rules.md#proposed-changes).
 
 ## CRS
 
@@ -88,8 +133,10 @@ settings:
   diameter_range: [10, 5000]          # mm; outside is WG-09
   allowed_end_assets: [end cap, hydrant, structure]   # add valve to accept ends at valves
   required: [diameter]     # add material to require it (WG-08)
-  source_head: 50.0        # m: head of every source in the model
+  source_head: 50.0        # m: head of a source with no head or levels mapped
   blank_node_values: ["", unknown, none, "null"]       # recorded node ids meaning "none"
+  pump_power_kw: 10.0      # kW: a pump with no power mapped
+  remove_field: remove     # in a proposal: the field marking features to remove
 
 steps:                     # the conversion steps (rules.md#from-gis-to-epanet-the-conversion-steps)
   split_side_joins: true
@@ -98,6 +145,7 @@ steps:                     # the conversion steps (rules.md#from-gis-to-epanet-t
   close_valves: true
   fill_sizes: false        # check: off unless set; export: on unless set to false
   default_size_mm: 100
+  fill_elevations: true    # a junction with no elevation takes the nearest known one
 
 severity:                  # error, warning, info or off
   WG-04: off

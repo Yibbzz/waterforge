@@ -92,3 +92,89 @@ def test_without_the_source_nothing_is_fed(tmp_path_factory, spec):
 def run_tree(folder, tree, **kwargs):
     pipes, points = tree
     return run(folder, pipes, **points, **kwargs)
+
+
+# Proposals --------------------------------------------------------------------------------
+
+def _extension(pipes, points, choice):
+    """A correct extension: a new pipe from an existing grid point to a free neighbour."""
+    def grid(wkt_point):
+        x, y = map(float, wkt_point.split("(")[1].rstrip(")").split())
+        return round((x - 1_749_000.0) / GRID), round((y - 5_423_000.0) / GRID)
+
+    used, ends = set(), {}
+    for _, wkt, _ in pipes:
+        a, b = [p for p in wkt[12:-1].split(", ")]
+        for p in (a, b):
+            g = grid(f"P ({p})")
+            used.add(g)
+            ends[g] = ends.get(g, 0) + 1
+    options = [(a, (a[0] + dx, a[1] + dy)) for a in sorted(used)
+               for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]
+               if (a[0] + dx, a[1] + dy) not in used]
+    a, b = options[choice % len(options)]
+
+    def xy(g):
+        return f"{1_749_000.0 + g[0] * GRID} {5_423_000.0 + g[1] * GRID}"
+
+    pipe = (5000, f"LINESTRING ({xy(a)}, {xy(b)})", 150)
+    cap = (5000, f"POINT ({xy(b)})", "end cap")
+    # extending from a dead end: its end cap goes
+    removed = [f for f, w, _ in points["fittings"] if grid(w) == a]
+    return pipe, cap, removed
+
+
+def _with_old_errors(pipes, points, seed):
+    """The same tree with old errors: a missing end cap and a near-miss stub."""
+    rng = np.random.default_rng(seed)
+    fittings = list(points["fittings"])
+    if fittings:
+        fittings.pop(rng.integers(len(fittings)))
+    stub = (4000, f"LINESTRING ({1_749_000.0 - 0.5} {5_423_000.0 + 10}, "
+                  f"{1_749_000.0 - 0.5} {5_423_000.0 + 40})", 100)
+    return pipes + [stub], {**points, "fittings": fittings}
+
+
+@given(networks, st.integers(0, 1000))
+def test_a_correct_extension_never_adds_a_new_issue(tmp_path_factory, spec, choice):
+    from tests.helpers import make_network, mapping
+    from waterforge.compare import check_proposal
+
+    tree = random_tree(*spec, 1_749_000.0, 5_423_000.0)
+    pipe, cap, removed = _extension(*tree, choice)
+    pipes, points = _with_old_errors(*tree, spec[0])
+    removed = [f for f in removed if f in {x[0] for x in points["fittings"]}]
+    folder = tmp_path_factory.mktemp("p")
+    existing = make_network(folder, pipes, name="e.gpkg", **points)
+    proposed = make_network(folder, [pipe], name="p.gpkg", fittings=[cap],
+                            remove={"fittings": removed} if removed else None)
+    result = check_proposal(existing, proposed, mapping(), run_epanet=False)
+    new = [(i.rule, i.message) for i in result.issues
+           if i.status == "new" and i.severity != "info"]
+    assert new == []
+    assert any(i.status == "pre-existing" for i in result.issues)   # the old errors remain
+
+
+@given(networks, st.integers(0, 1000))
+def test_applying_then_removing_a_proposal_gives_the_baseline(tmp_path_factory, spec, choice):
+    from tests.helpers import make_network, mapping
+    from waterforge.check import check_read
+    from waterforge.compare import merge
+    from waterforge.inputs import read_network
+
+    m = mapping()
+    tree = random_tree(*spec, 1_749_000.0, 5_423_000.0)
+    pipe, cap, _ = _extension(*tree, choice)
+    pipes, points = _with_old_errors(*tree, spec[0])
+    folder = tmp_path_factory.mktemp("r")
+    existing = read_network(make_network(folder, pipes, name="e.gpkg", **points), m)
+    add = read_network(make_network(folder, [pipe], name="p.gpkg", fittings=[cap]), m,
+                       proposal=True, crs=existing.crs)
+    undo = read_network(make_network(folder, [pipe], name="u.gpkg", fittings=[cap],
+                                     remove={"pipes": [5000], "fittings": [5000]}), m,
+                        proposal=True, crs=existing.crs)
+    applied, _ = merge(existing, add, m)
+    back, _ = merge(applied, undo, m)
+    before = check_read(existing, m, run_epanet=False).issues
+    after = check_read(back, m, run_epanet=False).issues
+    assert sorted(i.id for i in after) == sorted(i.id for i in before)

@@ -68,12 +68,12 @@ def test_bad_mapping_exits_3_with_every_problem(network, tmp_path, capsys):
     assert error["type"] == "MappingError" and len(error["issues"]) == 2
 
 
-def test_wrong_field_name_suggests_the_right_one(network, tmp_path, capsys):
+def test_field_names_match_regardless_of_capitals(network, tmp_path, capsys):
     path, _ = network
-    bad = tmp_path / "bad.yaml"
-    bad.write_text("pipes: [{layer: pipes, id: PID}]\n")
-    assert main(["check", "--network", path, "--mapping", str(bad)]) == 3
-    assert "did you mean 'pid'" in capsys.readouterr().err
+    upper = tmp_path / "upper.yaml"   # as after loading into PostgreSQL, which lowercases
+    upper.write_text("pipes: [{layer: pipes, id: PID, diameter: DIA}]\n")
+    assert main(["check", "--network", path, "--mapping", str(upper), "--no-epanet",
+                 "--fail-on", "none"]) == 0
 
 
 def test_missing_network_exits_3(network, tmp_path):

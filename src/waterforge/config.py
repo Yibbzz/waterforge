@@ -33,13 +33,24 @@ from .errors import MappingError
 
 # Asset kinds the mapping can name, and the fields each may map.
 KIND_FIELDS = {
-    "pipes": {"diameter", "material", "start_node", "end_node"},
-    "fittings": {"type"},
-    "valves": {"closed"},
-    "hydrants": set(),
-    "structures": {"type"},
+    "pipes": {"diameter", "material", "start_node", "end_node", "roughness"},
+    "junctions": {"elevation", "demand"},
+    "fittings": {"type", "elevation"},
+    "valves": {"closed", "type", "setting", "elevation"},
+    "hydrants": {"elevation"},
+    "pumps": {"power", "elevation"},
+    "structures": {"type", "elevation", "head", "init_level", "min_level", "max_level",
+                   "tank_diameter"},
 }
+# Fields holding a number (read as floats; a value that isn't a number is WG-09).
+NUMBER_FIELDS = ("elevation", "demand", "roughness", "setting", "power", "head", "init_level",
+                 "min_level", "max_level", "tank_diameter")
+# Plain field names (the rest are value maps: type, closed).
+PLAIN_FIELDS = ("diameter", "material", "start_node", "end_node") + NUMBER_FIELDS
 LAYER_KEYS = {"layer", "where", "id"}
+# Kinds whose features may be lines as well as points: a valve or pump drawn as a link.
+LINK_KINDS = ("valves", "pumps")
+VALVE_TYPES = {"isolation", "prv", "psv", "pbv", "fcv", "tcv"}
 FITTING_TYPES = {"end cap", "tee", "cross", "bend", "reducer", "joint", "tapping band", "other"}
 STRUCTURE_TYPES = {"reservoir", "tank", "pump station", "other"}
 SOURCE_TYPES = {"reservoir", "tank"}
@@ -66,12 +77,22 @@ class LayerSpec:
     material: str | None = None
     start_node: str | None = None
     end_node: str | None = None
+    roughness: str | None = None
+    elevation: str | None = None
+    demand: str | None = None
+    setting: str | None = None
+    power: str | None = None
+    head: str | None = None
+    init_level: str | None = None
+    min_level: str | None = None
+    max_level: str | None = None
+    tank_diameter: str | None = None
     type: ValueMap | None = None
     closed: ValueMap | None = None
 
     def source_fields(self) -> list[str]:
         """The source fields this layer reads."""
-        names = [self.id, self.diameter, self.material, self.start_node, self.end_node]
+        names = [self.id] + [getattr(self, name) for name in PLAIN_FIELDS]
         names += [m.field for m in (self.type, self.closed) if m is not None and m.field]
         return list(dict.fromkeys(n for n in names if n))
 
@@ -87,8 +108,10 @@ class Settings:
     diameter_range: tuple[float, float] = (10.0, 5000.0)  # mm, inclusive
     allowed_end_assets: tuple[str, ...] = ("end cap", "hydrant", "structure")
     required: tuple[str, ...] = ("diameter",)
-    source_head: float = 50.0       # m: head given to every tank and reservoir in the model
+    source_head: float = 50.0       # m: head of a source with no head or levels recorded
     blank_node_values: tuple[str, ...] = ("", "unknown", "none", "null")
+    pump_power_kw: float = 10.0     # kW: a pump with no power recorded (no curves yet)
+    remove_field: str = "remove"    # in a proposal: features to remove (yes / true / 1)
 
 
 @dataclass(frozen=True)
@@ -101,6 +124,7 @@ class Steps:
     fill_sizes: bool | None = None   # None: off for `check`, on for `export`
     default_size_mm: float = 100.0
     close_valves: bool = True
+    fill_elevations: bool = True     # a junction with no elevation takes the nearest known one
 
 
 @dataclass(frozen=True)
@@ -219,10 +243,11 @@ def _layer(kind, n, entry, problems) -> LayerSpec | None:
         problems.append(f"{where}: 'layer' is required")
         return None
     values = {k: (str(v) if v is not None else None) for k, v in entry.items()
-              if k in LAYER_KEYS | {"diameter", "material", "start_node", "end_node"}}
+              if k in LAYER_KEYS | set(PLAIN_FIELDS)}
     spec = LayerSpec(kind=kind, **values)
     if "type" in entry:
-        allowed_types = FITTING_TYPES if kind == "fittings" else STRUCTURE_TYPES
+        allowed_types = {"fittings": FITTING_TYPES, "valves": VALVE_TYPES}.get(kind,
+                                                                             STRUCTURE_TYPES)
         spec = replace(spec, type=_value_map(f"{where}.type", entry["type"], allowed_types,
                                              problems))
     if "closed" in entry:

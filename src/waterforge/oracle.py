@@ -52,6 +52,8 @@ class EpanetResult:
     # When only missing sizes stopped EPANET: a second run with sizes filled, which
     # judges the connectivity rules.
     connectivity: "EpanetResult | None" = None
+    warnings: list = field(default_factory=list)   # the report's WARNING lines
+    pressures: dict = field(default_factory=dict)  # Solves level: min / max / negative count
 
     @property
     def rules(self) -> set:
@@ -67,6 +69,9 @@ class EpanetResult:
     def as_dict(self) -> dict:
         out = {"version": EPANET_VERSION, "loads": self.ran, "opened": self.opened,
                "errors": self.errors, "messages": self.messages[:20]}
+        if self.pressures:
+            out["pressures"] = self.pressures
+            out["warnings"] = self.warnings[:20]
         if self.connectivity is not None:
             out["with_sizes_filled"] = self.connectivity.as_dict()
         return out
@@ -79,34 +84,53 @@ def write_inp(model: Model, path, title: str = "WaterForge", token_demand: float
     j = model.junctions
     demand = j.demand.to_numpy(dtype=float) + token_demand
     out += [f"{n}\t{e:g}\t{d:g}\n" for n, e, d in zip(j.name, j.elevation, demand)]
-    out.append("\n[RESERVOIRS]\n;ID\tHead\n")
     r = model.reservoirs
-    out += [f"{n}\t{h:g}\n" for n, h in zip(r.name, r["head"])]
-    out.append("\n[PIPES]\n;ID\tNode1\tNode2\tLength\tDiameter\tRoughness\tMinorLoss\tStatus\n")
+    res, tanks = r[r.kind != "tank"], r[r.kind == "tank"]
+    out.append("\n[RESERVOIRS]\n;ID\tHead\n")
+    out += [f"{n}\t{h:g}\n" for n, h in zip(res.name, res["head"])]
+    out.append("\n[TANKS]\n;ID\tElevation\tInitLevel\tMinLevel\tMaxLevel\tDiameter\tMinVol\n")
+    out += [f"{n}\t{e:g}\t{i:g}\t{lo:g}\t{hi:g}\t{d:g}\t0\n"
+            for n, e, i, lo, hi, d in zip(tanks.name, tanks.elevation, tanks.init_level,
+                                          tanks.min_level, tanks.max_level, tanks.diameter)]
     k = model.links
+    pipes = k[k.kind.isin(["pipe", "connector"]) | ((k.kind == "valve") & k.valve_type.isna())]
+    out.append("\n[PIPES]\n;ID\tNode1\tNode2\tLength\tDiameter\tRoughness\tMinorLoss\tStatus\n")
     out += [f"{n}\t{a}\t{b}\t{length:.3f}\t{d:g}\t{c:g}\t0\t{s}\n"
-            for n, a, b, length, d, c, s in zip(k.name, k.start, k.end, k["length"],
-                                                k.diameter_mm, k.roughness, k.status)]
+            for n, a, b, length, d, c, s in zip(pipes.name, pipes.start, pipes.end,
+                                                pipes["length"], pipes.diameter_mm,
+                                                pipes.roughness, pipes.status)]
+    valves = k[(k.kind == "valve") & k.valve_type.notna()]
+    out.append("\n[VALVES]\n;ID\tNode1\tNode2\tDiameter\tType\tSetting\tMinorLoss\n")
+    out += [f"{n}\t{a}\t{b}\t{d:g}\t{t.upper()}\t{s:g}\t0\n"
+            for n, a, b, d, t, s in zip(valves.name, valves.start, valves.end,
+                                        valves.diameter_mm, valves.valve_type, valves.setting)]
+    pumps = k[k.kind == "pump"]
+    out.append("\n[PUMPS]\n;ID\tNode1\tNode2\tParameters\n")
+    out += [f"{n}\t{a}\t{b}\tPOWER {p:g}\n"
+            for n, a, b, p in zip(pumps.name, pumps.start, pumps.end, pumps.power)]
     out.append("\n[COORDINATES]\n;Node\tX\tY\n")
     out += [f"{n}\t{x:.3f}\t{y:.3f}\n" for n, x, y in zip(j.name, j.x, j.y)]
     out += [f"{n}\t{x:.3f}\t{y:.3f}\n" for n, x, y in zip(r.name, r.x, r.y)]
     if vertices:
-        pipes = k[k.kind == "pipe"]
-        coords, index = shapely.get_coordinates(pipes.geometry.values, return_index=True)
-        counts = np.bincount(index, minlength=len(pipes))
+        drawn = k[k.kind == "pipe"]
+        coords, index = shapely.get_coordinates(drawn.geometry.values, return_index=True)
+        counts = np.bincount(index, minlength=len(drawn))
         first = np.concatenate([[0], np.cumsum(counts)[:-1]])
         inner = np.ones(len(coords), bool)
         inner[first] = False
         inner[first + counts - 1] = False
-        names = pipes.name.to_numpy()[index]
+        names = drawn.name.to_numpy()[index]
         out.append("\n[VERTICES]\n;Link\tX\tY\n")
         out += [f"{n}\t{x:.3f}\t{y:.3f}\n" for n, (x, y) in zip(names[inner], coords[inner])]
     out.append("\n[TIMES]\nDuration\t0\n\n[OPTIONS]\nUnits\tLPS\nHeadloss\tH-W\n\n[END]\n")
     Path(path).write_text("".join(out), encoding="utf-8")
 
 
-def run_epanet(inp) -> EpanetResult:
-    """Open the .inp and run one hydraulic step with EPANET, reading its report."""
+def run_epanet(inp, pressures: bool = False) -> EpanetResult:
+    """Open the .inp and run one hydraulic step with EPANET, reading its report.
+
+    pressures=True also collects the junction pressures (min, max, how many negative).
+    """
     from epanet import toolkit as en
 
     result = EpanetResult()
@@ -124,6 +148,8 @@ def run_epanet(inp) -> EpanetResult:
                     warnings.simplefilter("ignore")  # the report has the details
                     en.solveH(project)
                 result.ran = True
+                if pressures:
+                    result.pressures = _pressures(en, project)
             except Exception:  # noqa: BLE001 - the report says what went wrong
                 pass
         finally:
@@ -146,11 +172,34 @@ def run_epanet(inp) -> EpanetResult:
             node = _UNCONNECTED.search(line)
             if node:
                 result.unconnected.append(node.group(1))
+        if "WARNING" in line and line not in result.warnings:
+            result.warnings.append(line)
         node = _DISCONNECTED.search(line)
         if node and node.group(1) not in result.disconnected:
             result.disconnected.append(node.group(1))
             result.messages.append(line)
     return result
+
+
+def _pressures(en, project) -> dict:
+    """Junction pressures after a solve, from EPANET (after solveH the final state is kept)."""
+    values = []
+    for i in range(1, en.getcount(project, en.NODECOUNT) + 1):
+        if en.getnodetype(project, i) == en.JUNCTION:
+            values.append(en.getnodevalue(project, i, en.PRESSURE))
+    if not values:
+        return {}
+    values = np.asarray(values)
+    return {"junctions": len(values), "min_m": round(float(values.min()), 2),
+            "max_m": round(float(values.max()), 2), "negative": int((values < 0).sum())}
+
+
+def solve(model: Model, title: str = "WaterForge") -> EpanetResult:
+    """The Solves level: the model as it is (recorded demands and elevations), run once."""
+    with tempfile.TemporaryDirectory(prefix="waterforge-") as folder:
+        inp = Path(folder) / "solve.inp"
+        write_inp(model, inp, title, vertices=False)
+        return run_epanet(inp, pressures=True)
 
 
 def referee(model: Model, title: str = "WaterForge") -> EpanetResult:

@@ -63,8 +63,11 @@ def check(model: Model, mapping: Mapping, gis_issues: list[Issue]) -> list[Issue
         issues.append(Issue("WE-03", f"Node {name} connects to no link", feats, where,
                             data={"element": name}))
 
-    # WE-07: legal numbers
-    bad = ~(links.diameter_mm > 0) | ~(links["length"] > 0) | ~(links.roughness > 0)
+    issues += valve_rules(model)
+
+    # WE-07: legal numbers (pumps have no diameter, length or roughness)
+    sized = links.kind != "pump"
+    bad = sized & (~(links.diameter_mm > 0) | ~(links["length"] > 0) | ~(links.roughness > 0))
     for row in links[bad].itertuples():
         what = "no diameter" if not row.diameter_mm > 0 else "no length" \
             if not row.length > 0 else "no roughness"
@@ -76,6 +79,54 @@ def check(model: Model, mapping: Mapping, gis_issues: list[Issue]) -> list[Issue
 
     issues += unfed(model, mapping, gis_issues)
     return issues
+
+
+# Valve types EPANET checks for illegal connections (project.c, valvecheck).
+CHECKED_VALVES = ("prv", "psv", "fcv")
+# (upstream type, downstream type) where EPANET refuses the first valve's end being the
+# second's start; and same-type pairs, with what they may not share.
+HEAD_TO_TAIL = {("prv", "psv"), ("fcv", "psv"), ("prv", "fcv")}
+
+
+def valve_rules(model: Model) -> list[Issue]:
+    """WE-04 (a PRV, PSV or FCV on a tank or reservoir) and WE-05 (valve arrangements).
+
+    The arrangements are exactly those EPANET 2.3.5's valvecheck refuses (error 220): two
+    PRVs sharing a downstream node or in series; two PSVs sharing an upstream node or in
+    series; and a PRV before a PSV, an FCV before a PSV, or a PRV before an FCV, where the
+    first valve's end is the second's start.
+    """
+    links = model.links
+    valves = links[(links.kind == "valve") & links.valve_type.isin(CHECKED_VALVES)]
+    sources = set(model.reservoirs.name)
+    issues = []
+    for row in valves[valves.start.isin(sources) | valves.end.isin(sources)].itertuples():
+        issues.append(Issue("WE-04", f"{row.valve_type.upper()} {row.fid} connects directly to a "
+                            "tank or reservoir: EPANET refuses it (error 219)",
+                            model.features_of([row.name]), _where(row.geometry),
+                            data={"element": row.name}))
+    rows = list(valves.itertuples())
+    for i, a in enumerate(rows):
+        for b in rows[i + 1:]:
+            what = _arrangement(a, b) or _arrangement(b, a)
+            if what:
+                issues.append(Issue("WE-05", f"Valves {a.fid} and {b.fid}: {what}; EPANET "
+                                    "refuses it (error 220)",
+                                    model.features_of([a.name, b.name]), _where(a.geometry),
+                                    data={"elements": [a.name, b.name]}))
+    return issues
+
+
+def _arrangement(a, b) -> str | None:
+    """Why EPANET refuses valves a and b together, reading a as the first; None if it doesn't."""
+    ta, tb = a.valve_type, b.valve_type
+    if ta == tb == "prv" and (a.end == b.end or a.end == b.start):
+        return "two PRVs share a downstream node or are in series"
+    if ta == tb == "psv" and (a.start == b.start or a.end == b.start):
+        return "two PSVs share an upstream node or are in series"
+    if (ta, tb) in HEAD_TO_TAIL and a.end == b.start:
+        return f"a {tb.upper()} starts where a {ta.upper()} ends"
+    return None
 
 
 def pieces(model: Model):

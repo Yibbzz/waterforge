@@ -6,13 +6,16 @@ Read a utility's layers through the mapping into one common layout.
 Any GDAL source works (GeoPackage, Shapefile folder, File Geodatabase,
 "PG:dbname=..." for PostGIS). Input is read-only: nothing is written back.
 
-The result holds two tables:
+The result holds three tables:
   pipes   lines: layer, fid (the mapping's id), part (of a multi-part line),
-          diameter_mm, diameter_text, material, start_node, end_node
-  points  every point asset: asset (fitting / valve / hydrant / structure),
-          layer, fid, asset_type (end cap, tee, reservoir, ...), closed
+          diameter_mm, diameter_text, material, roughness, start_node, end_node
+  points  every point asset: asset (junction / fitting / valve / hydrant / pump /
+          structure), layer, fid, asset_type (end cap, prv, reservoir, ...), closed,
+          and the number fields (elevation, demand, setting, power, head, levels)
+  links   valves and pumps drawn as lines instead of points
 plus the issues found while reading (WG-06 geometry, WG-08 missing
-attributes, WG-09 values the mapping can't read).
+attributes, WG-09 values the mapping can't read). In a proposal, `remove`
+marks features to remove.
 """
 
 import logging
@@ -25,24 +28,38 @@ import pandas as pd
 import pyogrio
 import shapely
 
-from .config import DIAMETER_UNITS, LayerSpec, Mapping, normalise_value
+from . import postgis
+from .config import (
+    DIAMETER_UNITS,
+    LINK_KINDS,
+    NUMBER_FIELDS,
+    LayerSpec,
+    Mapping,
+    normalise_value,
+)
 from .errors import InputError, MappingError
 from .issues import Issue, feature
 
 log = logging.getLogger(__name__)
 
-ASSET_OF_KIND = {"fittings": "fitting", "valves": "valve", "hydrants": "hydrant",
-                 "structures": "structure"}
-PIPE_COLUMNS = ["layer", "fid", "part", "diameter_mm", "diameter_text", "material",
-                "start_node", "end_node", "geometry"]
-POINT_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", "geometry"]
+ASSET_OF_KIND = {"junctions": "junction", "fittings": "fitting", "valves": "valve",
+                 "hydrants": "hydrant", "pumps": "pump", "structures": "structure"}
+NUMBER_COLUMNS = list(NUMBER_FIELDS)
+PIPE_COLUMNS = ["layer", "fid", "part", "diameter_mm", "diameter_text", "material", "roughness",
+                "start_node", "end_node", "remove", "geometry"]
+POINT_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", *NUMBER_COLUMNS, "remove",
+                 "geometry"]
+LINK_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", "setting", "power", "remove",
+                "geometry"]
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+_YES = {"yes", "y", "true", "1", "t"}
 
 
 @dataclass
 class Network:
     pipes: gpd.GeoDataFrame
-    points: gpd.GeoDataFrame
+    points: gpd.GeoDataFrame     # point assets (junctions, fittings, valves, ...)
+    links: gpd.GeoDataFrame      # valves and pumps drawn as lines
     crs: object
     issues: list[Issue] = field(default_factory=list)
 
@@ -52,53 +69,116 @@ class Network:
         return p[(p.asset == "structure") & p.asset_type.isin(["reservoir", "tank"])]
 
 
-def read_network(source: str, mapping: Mapping) -> Network:
-    """Read every mapped layer; raise MappingError listing all missing layers or fields."""
-    _check_source(source, mapping)
+def read_network(source: str, mapping: Mapping, proposal: bool = False, crs=None) -> Network:
+    """
+    Read every mapped layer; raise MappingError listing all missing layers or fields.
+
+    proposal=True reads a proposed change: layers may be missing (nothing proposed there),
+    and the `remove` field (settings.remove_field) marks features to remove. `crs` forces
+    the CRS to work in (the existing network's, for a proposal).
+    """
+    present, geometry_columns = _check_source(source, mapping, proposal)
+    specs = [s for s in mapping.layers if s.layer in present]
     issues: list[Issue] = []
-    frames = [_read_layer(source, spec, mapping) for spec in mapping.layers]
-    crs = _target_crs([f for f, spec in zip(frames, mapping.layers) if spec.kind == "pipes"],
-                      mapping)
-    pipes, points = [], []
-    for frame, spec in zip(frames, mapping.layers):
+    frames = [_read_layer(source, spec, mapping, *present[spec.layer],
+                          geometry_columns.get(spec.layer), proposal) for spec in specs]
+    if crs is None:
+        crs = _target_crs([f for f, spec in zip(frames, specs) if spec.kind == "pipes"],
+                          mapping)
+    pipes, points, links = [], [], []
+    for frame, spec in zip(frames, specs):
         frame = _to_crs(frame, crs, spec.layer)
+        frame["remove"] = _remove(frame, present[spec.layer][0])
         if spec.kind == "pipes":
             pipes.append(_pipes(frame, spec, mapping, issues))
         else:
-            points.append(_points(frame, spec, issues))
-    pipes = gpd.GeoDataFrame(pd.concat(pipes, ignore_index=True), geometry="geometry", crs=crs)
-    points = (gpd.GeoDataFrame(pd.concat(points, ignore_index=True), geometry="geometry", crs=crs)
-              if points else gpd.GeoDataFrame(columns=POINT_COLUMNS, geometry="geometry", crs=crs))
-    log.info("Read %s pipes (%.1f km) and %s point assets", f"{len(pipes):,}",
-             pipes.length.sum() / 1000, f"{len(points):,}")
-    return Network(pipes, points, crs, issues)
+            p, k = _points(frame, spec, issues)
+            points.append(p)
+            links.append(k)
+    network = Network(_frame(pipes, PIPE_COLUMNS, crs), _frame(points, POINT_COLUMNS, crs),
+                      _frame(links, LINK_COLUMNS, crs), crs, issues)
+    log.info("Read %s pipes (%.1f km), %s point assets%s%s", f"{len(network.pipes):,}",
+             network.pipes.length.sum() / 1000, f"{len(network.points):,}",
+             f", {len(network.links)} valves / pumps drawn as lines" if len(network.links)
+             else "", " (proposed change)" if proposal else "")
+    return network
 
 
-def _check_source(source, mapping):
-    try:
-        layers = {name for name, _ in pyogrio.list_layers(source)}
-    except Exception as exc:  # noqa: BLE001 - GDAL's own message says why
-        raise InputError(f"Can't open {source}: {exc}") from exc
-    problems = []
+def _frame(parts, columns, crs):
+    parts = [p for p in parts if len(p)]
+    if not parts:
+        return gpd.GeoDataFrame({c: [] for c in columns}, geometry="geometry", crs=crs)
+    return gpd.GeoDataFrame(pd.concat(parts, ignore_index=True)[columns], geometry="geometry",
+                            crs=crs)
+
+
+def _check_source(source, mapping, proposal):
+    """
+    ({layer: (remove field or None, {mapping field: actual field})} for the layers present,
+    {layer: geometry column} for PostGIS); problems raised, all at once.
+
+    A field matches regardless of capitals when only one field does: loading into
+    PostgreSQL usually lowercases names (ASSET_NUMBER -> asset_number).
+    """
+    geometry_columns = {}
+    if postgis.is_postgis(source):
+        geometry_columns = postgis.list_layers(source)
+        layers = set(geometry_columns)
+    else:
+        try:
+            layers = {name for name, _ in pyogrio.list_layers(source)}
+        except Exception as exc:  # noqa: BLE001 - GDAL's own message says why
+            raise InputError(f"Can't open {source}: {exc}") from exc
+    problems, present = [], {}
     for spec in mapping.layers:
         if spec.layer not in layers:
-            problems.append(f"{spec.kind}: layer '{spec.layer}' is not in {source} "
-                            f"(it has: {', '.join(sorted(layers))})")
+            if not proposal:
+                problems.append(f"{spec.kind}: layer '{spec.layer}' is not in {source} "
+                                f"(it has: {', '.join(sorted(layers))})")
             continue
-        have = set(pyogrio.read_info(source, layer=spec.layer)["fields"])
-        lower = {f.lower(): f for f in have}
+        have = set(postgis.fields(source, spec.layer) if geometry_columns
+                   else pyogrio.read_info(source, layer=spec.layer)["fields"])
+        by_lower = {}
+        for f in have:
+            by_lower.setdefault(f.lower(), []).append(f)
+        names = {}
         for name in spec.source_fields():
-            if name not in have:
-                hint = f" (did you mean '{lower[name.lower()]}'?)" if name.lower() in lower else ""
-                problems.append(f"{spec.kind}: layer '{spec.layer}' has no field '{name}'{hint}")
+            if name in have:
+                names[name] = name
+            elif len(by_lower.get(name.lower(), [])) == 1:
+                names[name] = by_lower[name.lower()][0]
+            else:
+                problems.append(f"{spec.kind}: layer '{spec.layer}' has no field '{name}'")
+        remove = by_lower.get(mapping.settings.remove_field.lower(), [None])[0] \
+            if proposal else None
+        present[spec.layer] = (remove, names)
     if problems:
-        raise MappingError(problems)
+        raise MappingError(problems, source="proposal" if proposal else "mapping")
+    if proposal and not present:
+        raise InputError(f"The proposal {source} has none of the mapped layers "
+                         f"({', '.join(sorted({s.layer for s in mapping.layers}))}).")
+    return present, geometry_columns
 
 
-def _read_layer(source, spec: LayerSpec, mapping: Mapping) -> gpd.GeoDataFrame:
+def _read_layer(source, spec: LayerSpec, mapping: Mapping, remove=None, names=None,
+                geometry_column=None, proposal=False) -> gpd.GeoDataFrame:
+    """One layer's mapped fields, renamed to the mapping's spelling.
+
+    A proposal doesn't apply `where`: everything proposed is meant to be in use, and the
+    proposal's file needn't have the fields the filter names.
+    """
+    names = names or {f: f for f in spec.source_fields()}
+    columns = list(dict.fromkeys([names[f] for f in spec.source_fields()]
+                                 + ([remove] if remove else [])))
+    where = None if proposal else spec.where
     try:
-        frame = gpd.read_file(source, layer=spec.layer, where=spec.where,
-                              columns=spec.source_fields(), engine="pyogrio")
+        if geometry_column:
+            frame = postgis.read_layer(source, spec.layer, geometry_column, columns, where)
+        else:
+            frame = gpd.read_file(source, layer=spec.layer, where=where, columns=columns,
+                                  engine="pyogrio")
+        frame = frame.rename(columns={actual: name for name, actual in names.items()
+                                      if actual != name})
     except Exception as exc:  # noqa: BLE001
         if spec.where:
             raise MappingError([f"{spec.kind}: layer '{spec.layer}': can't apply "
@@ -109,6 +189,13 @@ def _read_layer(source, spec: LayerSpec, mapping: Mapping) -> gpd.GeoDataFrame:
     frame = frame[frame.geometry.notna()].copy()
     frame["geometry"] = shapely.force_2d(frame.geometry.values)
     return frame
+
+
+def _remove(frame, field_name):
+    if not field_name or field_name not in frame:
+        return False
+    return frame[field_name].map(lambda v: v is not None and v == v
+                                 and normalise_value(v) in _YES).astype(bool)
 
 
 def _target_crs(pipe_frames, mapping):
@@ -182,8 +269,10 @@ def _pipes(frame, spec, mapping, issues):
         "layer": frame.layer, "fid": frame.fid, "part": frame.part.astype(int),
         "diameter_mm": size[0], "diameter_text": size[1],
         "material": frame[spec.material] if spec.material else None,
+        "roughness": _numbers(frame, spec, "roughness", issues),
         "start_node": frame[spec.start_node].astype(object) if spec.start_node else None,
         "end_node": frame[spec.end_node].astype(object) if spec.end_node else None,
+        "remove": frame["remove"].to_numpy() if "remove" in frame else False,
         "geometry": frame.geometry.values,
     })
     if "material" in mapping.settings.required and spec.material:
@@ -231,32 +320,72 @@ def _diameters(frame, spec, mapping, issues):
     return size.to_numpy(dtype=float), keep_text.where(keep_text.notna(), None).tolist()
 
 
+def _numbers(frame, spec, name, issues):
+    """A number field as floats (NaN where empty); values that aren't numbers are WG-09."""
+    source = getattr(spec, name)
+    if source is None:
+        return np.full(len(frame), np.nan)
+    raw = frame[source]
+    values = pd.to_numeric(raw, errors="coerce")
+    bad = values.isna() & raw.notna() & (raw.astype("string").str.strip() != "")
+    if bad.any():
+        rows = frame[bad.to_numpy()]
+        issues.append(Issue(
+            "WG-09", f"{source} = '{raw[bad].iloc[0]}' isn't a number ({int(bad.sum())} "
+            f"feature(s) in layer '{spec.layer}'); treated as missing",
+            [feature(spec.layer, f) for f in rows.fid[:200]], _first_point(rows.geometry.iloc[0]),
+            severity="warning", data={"field": source}))
+    return values.to_numpy(dtype=float)
+
+
+def _first_point(geometry):
+    return geometry if geometry.geom_type == "Point" else shapely.get_point(geometry, 0)
+
+
 def _points(frame, spec, issues):
+    """(points, links): valves and pumps may be drawn as lines (links); the rest are points."""
     asset = ASSET_OF_KIND[spec.kind]
     frame = frame.assign(layer=spec.layer, fid=_ids(frame, spec))
     kinds = frame.geometry.geom_type
-    if not kinds.isin(["Point", "MultiPoint"]).all():
-        bad = kinds[~kinds.isin(["Point", "MultiPoint"])].iloc[0]
+    allowed = ["Point", "MultiPoint"] + (["LineString", "MultiLineString"]
+                                         if spec.kind in LINK_KINDS else [])
+    if not kinds.isin(allowed).all():
+        bad = kinds[~kinds.isin(allowed)].iloc[0]
+        what = "points or lines" if spec.kind in LINK_KINDS else "points"
         raise InputError(f"Layer '{spec.layer}' ({spec.kind}) has {bad} geometry; "
-                         "point assets must be points.")
-    frame = frame[~frame.geometry.is_empty].explode(index_parts=False).reset_index(drop=True)
-    kind = None
+                         f"{spec.kind} must be {what}.")
+    frame = frame[~frame.geometry.is_empty]
+    multi = frame[(frame.geometry.geom_type == "MultiLineString")
+                  & (shapely.get_num_geometries(frame.geometry.values) > 1)]
+    for row in multi.itertuples():
+        issues.append(Issue("WG-06", f"Multi-part line for {asset} {row.fid}: each part is "
+                            "treated as its own link", [feature(spec.layer, row.fid)],
+                            shapely.get_point(shapely.get_geometry(row.geometry, 0), 0),
+                            severity="warning"))
+    frame = frame.explode(index_parts=False).reset_index(drop=True)
+    default = {"valves": "isolation", "pumps": "pump"}.get(spec.kind, asset)
+    kind = pd.Series(default, index=frame.index)
     if spec.type is not None and spec.type.field is None:
         kind = pd.Series(spec.type.default, index=frame.index)
     elif spec.type is not None:
         values = frame[spec.type.field].map(normalise_value)
         kind = values.map(spec.type.values)
         unknown = kind.isna() & frame[spec.type.field].notna()
+        fallback = spec.type.default or ("isolation" if spec.kind == "valves" else "other")
         if spec.type.default is None:
             for _, group in frame[unknown].groupby(values[unknown]):
                 issues.append(Issue(
                     "WG-09", f"{spec.type.field} = '{group[spec.type.field].iloc[0]}' isn't in "
-                    f"the mapping ({len(group)} features); treated as 'other'",
-                    [feature(spec.layer, f) for f in group.fid], group.geometry.iloc[0],
-                    severity="warning"))
-        kind = kind.fillna(spec.type.default or "other")
+                    f"the mapping ({len(group)} features); treated as '{fallback}'",
+                    [feature(spec.layer, f) for f in group.fid[:200]],
+                    _first_point(group.geometry.iloc[0]), severity="warning"))
+        kind = kind.fillna(fallback)
     closed = (frame[spec.closed.field].map(normalise_value).isin(spec.closed.values)
-              if spec.closed is not None else False)
-    return pd.DataFrame({"asset": asset, "layer": spec.layer, "fid": frame.fid,
-                         "asset_type": kind if kind is not None else asset, "closed": closed,
-                         "geometry": frame.geometry.values})
+              if spec.closed is not None else pd.Series(False, index=frame.index))
+    out = pd.DataFrame({"asset": asset, "layer": spec.layer, "fid": frame.fid,
+                        "asset_type": kind.to_numpy(), "closed": closed.to_numpy(dtype=bool),
+                        **{name: _numbers(frame, spec, name, issues) for name in NUMBER_COLUMNS},
+                        "remove": frame["remove"].to_numpy() if "remove" in frame else False,
+                        "geometry": frame.geometry.values})
+    is_line = out.geometry.map(lambda g: g.geom_type == "LineString").to_numpy(dtype=bool)
+    return out[~is_line], out[is_line][LINK_COLUMNS]

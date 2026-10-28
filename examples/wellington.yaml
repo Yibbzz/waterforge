@@ -20,6 +20,7 @@ fittings:
   - layer: fittings
     where: "TRIM(operational_status) = 'In Use'"
     id: asset_id
+    elevation: elevation_m       # ground level at the node: used at the Solves level
     type:
       field: type
       values: {Dead End: end cap, Tee: tee, Joint: joint, Bend: bend, Reducer: reducer,
@@ -36,6 +37,7 @@ hydrants:
   - layer: hydrants
     where: "TRIM(operational_status) = 'In Use'"
     id: asset_id
+    elevation: elevation_m
 
 structures:
   - layer: tanks
@@ -45,6 +47,8 @@ structures:
       field: type
       values: {Reservoir: reservoir, TANK: tank}
       default: other              # EMTK: emergency tanks, not a supply source
+    head: twl_m                  # top water level, m above datum (checked against the
+                                 # ground beside each tank); empty for about half the tanks
   - layer: pump_stations
     where: "TRIM(operational_status) = 'In Use'"
     id: asset_id

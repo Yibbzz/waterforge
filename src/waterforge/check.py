@@ -19,7 +19,7 @@ from .convert import build_model
 from .inputs import Network, read_network
 from .issues import Issue, finalise
 from .model import Model
-from .oracle import CODE_RULE, INPUT_LEVEL, EpanetResult, referee
+from .oracle import CODE_RULE, INPUT_LEVEL, EpanetResult, referee, solve
 from .rules import epanet, gis
 
 log = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ class CheckResult:
     issues: list[Issue]
     epanet: EpanetResult | None = None
     disagreements: list[str] = field(default_factory=list)
+    solved: EpanetResult | None = None
 
     def summary(self) -> dict:
         by_rule = Counter(i.rule for i in self.issues)
@@ -48,19 +49,24 @@ class CheckResult:
             "issues": dict(sorted(by_rule.items())),
             "severity": {k: by_severity.get(k, 0) for k in ("error", "warning", "info")},
             "epanet": self.epanet.as_dict() if self.epanet else None,
+            "solve": self.solved.as_dict() if self.solved else None,
             "disagreements": self.disagreements,
         }
 
 
 def check_network(source, mapping: Mapping, checks: str = "all", fill_sizes: bool | None = None,
-                  run_epanet: bool = True, progress=None) -> CheckResult:
-    """Check a network; `fill_sizes` None takes the rule pack's setting (default off)."""
+                  run_epanet: bool = True, progress=None, solves: bool = False) -> CheckResult:
+    """Check a network; `fill_sizes` None takes the rule pack's setting (default off).
+
+    solves=True adds the Solves level (WE-09): a steady-state run with the recorded
+    elevations, demands and source heads.
+    """
     network = read_network(source, mapping) if isinstance(source, str) else source
-    return check_read(network, mapping, checks, fill_sizes, run_epanet, progress)
+    return check_read(network, mapping, checks, fill_sizes, run_epanet, progress, solves)
 
 
 def check_read(network: Network, mapping: Mapping, checks="all", fill_sizes=None,
-               run_epanet=True, progress=None) -> CheckResult:
+               run_epanet=True, progress=None, solves=False) -> CheckResult:
     def step(k, text):
         log.info(text)
         if progress:
@@ -93,11 +99,62 @@ def check_read(network: Network, mapping: Mapping, checks="all", fill_sizes=None
             result_epanet.connectivity = second
         for text in disagreements:
             log.warning("EPANET disagrees with the engine: %s", text)
+    solved = None
+    if solves:
+        step(4, "Solving (steady state)")
+        solved, solve_issue = solves_level(model, mapping)
+        if solve_issue is not None:
+            if not solved.ran and "110" in solved.errors:   # caused by the unfed pieces
+                for issue in analysis:
+                    issue.id = issue.id or issue.fingerprint(tol)
+                solve_issue.cause = [i.id for i in analysis if i.rule == "WE-08"]
+            analysis.append(solve_issue)
     step(5, "Reporting")
     issues = finalise(gis_issues + analysis, tol, mapping.severity)
     if checks != "all":
         issues = [i for i in issues if i.family == checks]
-    return CheckResult(network, model, issues, result_epanet, disagreements)
+    return CheckResult(network, model, issues, result_epanet, disagreements, solved)
+
+
+def solves_level(model: Model, mapping: Mapping):
+    """WE-09: run the model with its recorded inputs; say which inputs were missing."""
+    import shapely
+
+    filled = replace(model, links=model.links.assign(diameter_mm=model.links.diameter_mm.where(
+        (model.links.diameter_mm > 0) | (model.links.kind == "pump"),
+        mapping.steps.default_size_mm)))
+    result = solve(filled)
+    j = model.junctions
+    c = model.changes
+    demand = float(j.demand.sum())
+    inputs = {"junctions": len(j), "with_elevation": int(c.get("junctions_with_elevation", 0)),
+              "with_demand": int((j.demand != 0).sum()), "total_demand_lps": round(demand, 3),
+              "sources_default_head": int(c.get("sources_default_head", 0)),
+              "pumps_default_power": int(c.get("pumps_default_power", 0))}
+    missing = []
+    if inputs["with_elevation"] < len(j):
+        missing.append(f"elevations at {inputs['with_elevation']:,} of {len(j):,} junctions")
+    if inputs["with_demand"] == 0:
+        missing.append("no demands")
+    if inputs["sources_default_head"]:
+        missing.append(f"{inputs['sources_default_head']} source(s) with no head or levels "
+                       f"(given {mapping.settings.source_head:g} m)")
+    if inputs["pumps_default_power"]:
+        missing.append(f"{inputs['pumps_default_power']} pump(s) with no power "
+                       f"(given {mapping.settings.pump_power_kw:g} kW)")
+    note = f" Inputs: {'; '.join(missing)}." if missing else ""
+    if not result.ran:
+        text = f"The steady-state run fails: {result.messages[0] if result.messages else '?'}."
+    elif inputs["with_demand"] == 0:
+        text = "The run completes, but with no demands nothing flows: not a real solve."
+    elif result.warnings or result.pressures.get("negative"):
+        text = (f"The run completes with warnings: {result.warnings[0] if result.warnings else ''}"
+                f" ({result.pressures.get('negative', 0)} junctions below zero pressure).")
+    else:
+        return result, None
+    data = {"inputs": inputs, "errors": result.errors, "pressures": result.pressures,
+            "warnings": result.warnings[:10]}
+    return result, Issue("WE-09", text + note, [], shapely.Point(), data=data)
 
 
 def compare_with_epanet(analysis: list[Issue], result: EpanetResult, model: Model) -> list[str]:
@@ -108,6 +165,8 @@ def compare_with_epanet(analysis: list[Issue], result: EpanetResult, model: Mode
     # Input errors: EPANET reads the whole file, so both sides are complete.
     for rule in sorted((said | predicted) & INPUT_LEVEL):
         codes = [c for c, r in CODE_RULE.items() if r == rule and c in result.errors]
+        if rule == "WE-05" and rule not in said and _only_adjacent_valves(analysis, model):
+            continue  # a known EPANET 2.3.5 gap: see KNOWN_DIFFERENCES
         if rule in said and rule not in predicted:
             out.append(f"EPANET reported error {', '.join(codes)} ({rule}); the engine found none")
         elif rule in predicted and rule not in said:
@@ -126,6 +185,26 @@ def compare_with_epanet(analysis: list[Issue], result: EpanetResult, model: Mode
             out.append(f"EPANET found {len(stray)} disconnected junction(s) the engine thought "
                        f"were fed, e.g. {', '.join(stray[:3])}")
     return out
+
+
+# Documented differences between the engine and the pinned EPANET (brief guardrail 4).
+KNOWN_DIFFERENCES = {
+    "WE-05": "EPANET 2.3.5's input reader doesn't compare a valve with the valve written just "
+             "before it in [VALVES] (it passes the previous link's index as the new valve's "
+             "own), so two PRVs in series written one after the other are accepted. Fixed on "
+             "EPANET's dev branch (commit 946bb73c, 8 October 2026), not yet released. The "
+             "engine applies the rule as EPANET intends.",
+}
+
+
+def _only_adjacent_valves(analysis, model) -> bool:
+    """Every WE-05 pair is two valves written one after the other (the EPANET 2.3.5 gap)."""
+    links = model.links
+    order = list(links.loc[(links.kind == "valve") & links.valve_type.notna(), "name"])
+    position = {name: k for k, name in enumerate(order)}
+    pairs = [i.data.get("elements", []) for i in analysis if i.rule == "WE-05"]
+    return bool(pairs) and all(len(p) == 2 and abs(position[p[0]] - position[p[1]]) == 1
+                               for p in pairs)
 
 
 def _unfed_junctions(model: Model) -> set:

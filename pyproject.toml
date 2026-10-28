@@ -32,6 +32,11 @@ dependencies = [
     "owa-epanet==2.3.5",
 ]
 
+# PostGIS input: pyogrio's bundled GDAL has no PostgreSQL driver, so PostGIS is read with
+# psycopg directly (src/waterforge/postgis.py).
+[project.optional-dependencies]
+postgis = ["psycopg[binary]>=3.1"]
+
 [project.scripts]
 waterforge = "waterforge.cli:main"
 
@@ -57,13 +62,15 @@ dev = [
     "pytest>=8",
     "pytest-cov>=5",
     "ruff>=0.6",
+    "psycopg[binary]>=3.1",
 ]
 
 [tool.pytest.ini_options]
 markers = [
     "realdata: runs on whole cities' open data (needs WATERFORGE_DATA; see tests/realdata)",
+    "postgis: reads from a PostGIS database (needs WATERFORGE_POSTGIS, a PG: connection)",
 ]
-addopts = "-m 'not realdata'"
+addopts = "-m 'not realdata and not postgis'"
 
 [tool.ruff]
 line-length = 100

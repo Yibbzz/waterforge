@@ -311,3 +311,35 @@ def test_severity_off_and_override(tmp_path):
     result = run(tmp_path, BASE_PIPES, severity={"WG-01": "warning", "WG-16": "off"}, **points)
     assert [i.severity for i in rules(result, "WG-01")] == ["warning"]
     assert rules(result, "WG-16") == []
+
+
+# WG-03 point assets on pipes --------------------------------------------------------------
+
+def test_wg03_valve_between_vertices_and_beside_a_pipe(tmp_path):
+    valves = [(1, point(50, 0), "open"),          # on pipe 1, which has no vertex there
+              (2, point(150, 0.3), "open"),       # 0.3 m beside pipe 2
+              (3, point(100, 0), "open")]         # at a junction: fine
+    found = {(i.features[0]["id"], i.severity) for i in rules(
+        run(tmp_path, BASE_PIPES, valves=valves, **BASE_POINTS), "WG-03")}
+    assert found == {(1, "warning"), (2, "info")}
+
+
+def test_wg03_valve_on_a_vertex_and_tapping_bands_are_fine(tmp_path):
+    pipes = [(1, line((0, 0), (50, 0), (100, 0)), 150), *BASE_PIPES[1:]]
+    result = run(tmp_path, pipes, valves=[(1, point(50, 0), "open")],
+                 **{**BASE_POINTS, "fittings": [*BASE_POINTS["fittings"],
+                                                (9, point(70, 0), "tapping band")]})
+    assert rules(result, "WG-03") == []
+
+
+# WG-11 size changes ------------------------------------------------------------------------
+
+def test_wg11_size_change_without_a_fitting(tmp_path):
+    pipes = [*BASE_PIPES[:2], (3, line((100, 0), (100, -80)), 100),
+             (4, line((200, 0), (300, 0)), 100)]          # 150 mm pipe 2 meets 100 mm pipe 4
+    points = {"fittings": [(1, point(100, -80), "end cap"), (2, point(300, 0), "end cap"),
+                           (3, point(100, 0), "tee")], "structures": BASE_POINTS["structures"]}
+    [issue] = rules(run(tmp_path, pipes, **points), "WG-11")
+    assert sorted(issue.data["diameters_mm"]) == [100.0, 150.0]
+    points["fittings"].append((4, point(200, 0), "reducer"))
+    assert rules(run(tmp_path, pipes, **points), "WG-11") == []

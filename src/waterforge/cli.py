@@ -4,6 +4,8 @@ Command-line interface: `waterforge check | export | rules | info`.
     waterforge check --network existing.gpkg --mapping utility.yaml --json
     waterforge check --network existing.gpkg --mapping utility.yaml --checks gis \\
         --report report.json --issues issues.gpkg
+    waterforge check --network existing.gpkg --proposed proposed.gpkg --mapping utility.yaml \\
+        --fail-on new --baseline-out baseline.json
     waterforge export --network existing.gpkg --mapping utility.yaml --inp network.inp
     waterforge rules --json
     waterforge info --json
@@ -18,13 +20,14 @@ JSON events (a stable interface once released):
     {"event": "warning", "message": "..."}
     {"event": "issue", "id": "3f2a...", "rule": "WG-12", "family": "gis",
      "severity": "error", "message": "...", "features": [{"layer": "mains", "id": 81}],
-     "location": [x, y], "guide": "rules.md#wg-12", "cause": [...], "data": {...}}
+     "location": [x, y], "guide": "rules.md#wg-12", "cause": [...], "data": {...},
+     "status": "new"}                    # with --proposed: new / pre-existing / resolved
     {"event": "done", "failing": 12, "summary": {...}, "outputs": {...}}
     {"event": "error", "type": "MappingError", "message": "...", "guide": "...",
      "issues": [...]}
 
 Exit codes: 0 nothing failing, 1 unexpected error, 2 bad usage,
-3 unusable input or mapping, 5 issues that fail under --fail-on
+3 unusable input or mapping, 5 issues that fail under --fail-on and --fail-level
 (export: the model EPANET can't load). 4 is unused.
 """
 
@@ -38,6 +41,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from .check import CHECKS, check_network
+from .compare import check_proposal
 from .config import FITTING_TYPES, STRUCTURE_TYPES, load_mapping
 from .errors import InputError, WaterForgeError
 from .oracle import EPANET_VERSION, run_epanet, write_inp
@@ -45,7 +49,8 @@ from .report import write_element_table, write_issues, write_report
 from .rules.catalogue import RULES
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_INPUT, _UNUSED, EXIT_FAILING = range(6)
-FAIL_ON = ("error", "warning", "none")
+FAIL_ON = ("new", "all", "none")
+FAIL_LEVEL = ("error", "warning")
 
 log = logging.getLogger("waterforge.cli")
 
@@ -73,16 +78,27 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def cmd_check(args, emit) -> int:
     mapping = load_mapping(args.mapping, args.rules)
-    _check_outputs(args.report, args.issues)
-    result = check_network(args.network, mapping, checks=args.checks,
-                           run_epanet=not args.no_epanet, progress=_progress(emit))
-    for issue in result.issues:
+    _check_outputs(args.report, args.issues, args.baseline_out)
+    if (args.baseline or args.baseline_out) and not args.proposed:
+        raise InputError("--baseline and --baseline-out go with --proposed.")
+    if args.proposed:
+        proposal = check_proposal(args.network, args.proposed, mapping, checks=args.checks,
+                                  baseline=args.baseline, baseline_out=args.baseline_out,
+                                  run_epanet=not args.no_epanet, progress=_progress(emit))
+        result, issues, summary = proposal.merged, proposal.issues, proposal.summary()
+    else:
+        result = check_network(args.network, mapping, checks=args.checks,
+                               run_epanet=not args.no_epanet, progress=_progress(emit),
+                               solves=args.solve)
+        issues, summary = result.issues, result.summary()
+    for issue in issues:
         emit(issue.as_event())
-    outputs = _write_outputs(args, result, "check")
-    failing = _failing(result.issues, args.fail_on)
-    summary = result.summary()
+    outputs = _write_outputs(args, result, "check", issues, summary)
+    if args.baseline_out:
+        outputs["baseline"] = str(args.baseline_out)
+    failing = _failing(issues, args.fail_on, args.fail_level)
     emit({"event": "done", "failing": failing, "summary": summary, "outputs": outputs},
-         text=_summary_text(result, summary, failing, args.fail_on, outputs))
+         text=_summary_text(result, summary, failing, args, outputs, issues))
     return EXIT_FAILING if failing else EXIT_OK
 
 
@@ -98,7 +114,7 @@ def cmd_export(args, emit) -> int:
     check = run_epanet(args.inp)
     result.epanet = check
     outputs = {"inp": str(args.inp), "table": str(table)}
-    outputs.update(_write_outputs(args, result, "export"))
+    outputs.update(_write_outputs(args, result, "export", result.issues, result.summary()))
     summary = result.summary()
     loads = check.opened
     emit({"event": "done", "loads": loads, "summary": summary, "outputs": outputs},
@@ -132,11 +148,13 @@ def cmd_info(args, emit) -> int:
 
 # ---------------------------------------------------------------- helpers
 
-def _failing(issues, fail_on) -> int:
+def _failing(issues, fail_on, fail_level="error") -> int:
+    """Issues that fail: at --fail-level or worse, and new (without a proposal, all are new)."""
     if fail_on == "none":
         return 0
-    levels = {"error"} if fail_on == "error" else {"error", "warning"}
-    return sum(1 for i in issues if i.severity in levels)
+    levels = {"error"} if fail_level == "error" else {"error", "warning"}
+    statuses = {None, "new"} if fail_on == "new" else {None, "new", "pre-existing"}
+    return sum(1 for i in issues if i.severity in levels and i.status in statuses)
 
 
 def _check_outputs(*paths):
@@ -145,29 +163,44 @@ def _check_outputs(*paths):
             raise InputError(f"Can't write {path}: the folder {Path(path).parent} doesn't exist.")
 
 
-def _write_outputs(args, result, command) -> dict:
+def _write_outputs(args, result, command, issues, summary) -> dict:
     outputs = {}
     if args.report:
-        write_report(args.report, result.issues, result.summary(),
+        write_report(args.report, issues, summary,
                      {"waterforge": version("waterforge"), "epanet": EPANET_VERSION,
                       "command": command, "network": str(args.network),
                       "mapping": str(args.mapping)})
         outputs["report"] = str(args.report)
     if args.issues:
-        write_issues(args.issues, result.issues, result.network.crs)
+        write_issues(args.issues, issues, result.network.crs)
         outputs["issues"] = str(args.issues)
     return outputs
 
 
-def _summary_text(result, summary, failing, fail_on, outputs) -> str:
+def _summary_text(result, summary, failing, args, outputs, issues) -> str:
     lines = [f"{summary['pipes']:,} pipes -> model of {summary['model']['junctions']:,} "
              f"junctions, {summary['model']['pipes']:,} pipes, "
              f"{summary['model']['reservoirs']} sources, "
              f"{summary['model']['closed_valves']} closed valves"]
+    proposal = summary.get("proposal")
+    if proposal:
+        made = {k: v for k, v in proposal.items() if k != "status" and v}
+        lines.append("Proposal: " + (", ".join(f"{v} {k.replace('_', ' ')}"
+                                                for k, v in made.items()) or "no changes"))
     for rule_id, count in summary["issues"].items():
         rule = RULES[rule_id]
-        severities = {i.severity for i in result.issues if i.rule == rule_id}
-        lines.append(f"  {rule_id}  {count:6,}  {'/'.join(sorted(severities)):<13} {rule.title}")
+        mine = [i for i in issues if i.rule == rule_id]
+        severities = {i.severity for i in mine}
+        status = ""
+        if proposal:
+            new = sum(i.status == "new" for i in mine)
+            status = f" ({new} new)" if new else ""
+        lines.append(f"  {rule_id}  {count:6,}  {'/'.join(sorted(severities)):<13} "
+                     f"{rule.title}{status}")
+    if proposal:
+        s = proposal["status"]
+        lines.append(f"Issues: {s['new']} new, {s['pre-existing']} pre-existing, "
+                     f"{s['resolved']} resolved")
     if result.epanet:
         e = result.epanet
         state = "loads and runs" if e.ran else "loads; the run stops" if e.opened \
@@ -182,10 +215,16 @@ def _summary_text(result, summary, failing, fail_on, outputs) -> str:
                             else "refuses the input")
                          + (f" (errors {', '.join(f'{k} x{n}' for k, n in c.errors.items())})"
                             if c.errors else ""))
+    if result.solved is not None:
+        sv = result.solved
+        p = sv.pressures
+        lines.append("Steady state: " + ("runs" if sv.ran else "fails")
+                     + (f", pressures {p['min_m']:g} to {p['max_m']:g} m"
+                        f" ({p['negative']} junctions below zero)" if p else ""))
     for text in result.disagreements:
         lines.append(f"  disagreement: {text}")
-    lines.append(f"{failing:,} issue(s) fail (--fail-on {fail_on})" if failing
-                 else "Nothing fails.")
+    lines.append(f"{failing:,} issue(s) fail (--fail-on {args.fail_on}, --fail-level "
+                 f"{args.fail_level})" if failing else "Nothing fails.")
     if outputs:
         lines.append("Wrote " + ", ".join(outputs.values()))
     return "\n".join(lines)
@@ -223,10 +262,21 @@ def _parser() -> argparse.ArgumentParser:
     network_args(check)
     check.add_argument("--checks", choices=CHECKS, default="all",
                        help="gis (WG rules), analysis (WE rules) or all (default)")
-    check.add_argument("--fail-on", choices=FAIL_ON, default="error",
-                       help="which issues make the exit code 5 (default: error)")
+    check.add_argument("--proposed",
+                       help="a proposed change in the same layout: features with an existing "
+                            "id change it, remove=yes removes it, new ids are added")
+    check.add_argument("--baseline", help="reuse the existing network's saved issues")
+    check.add_argument("--baseline-out", help="save the existing network's issues for reuse")
+    check.add_argument("--fail-on", choices=FAIL_ON, default="new",
+                       help="new (default; with --proposed only issues it introduces), all "
+                            "(pre-existing too: a full audit) or none")
+    check.add_argument("--fail-level", choices=FAIL_LEVEL, default="error",
+                       help="the lowest severity that fails (default: error)")
     check.add_argument("--no-epanet", action="store_true",
                        help="skip asking EPANET (the engine's own rules still run)")
+    check.add_argument("--solve", action="store_true",
+                       help="add the Solves level (WE-09): a steady-state run with the recorded "
+                            "elevations, demands and source heads")
     check.set_defaults(command=cmd_check)
 
     export = sub.add_parser("export", parents=[common],

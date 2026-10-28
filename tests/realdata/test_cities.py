@@ -62,3 +62,31 @@ def test_default_check_and_export_load_in_epanet(name, tmp_path):
     inp = tmp_path / f"{name}.inp"
     write_inp(filled.model, inp)
     assert run_epanet(inp).opened   # "Loads": EPANET accepts the input
+
+
+@pytest.mark.parametrize("name", sorted(BASELINE))
+def test_an_empty_proposal_adds_nothing(name, tmp_path):
+    import geopandas as gpd
+
+    from waterforge.compare import check_proposal
+    from waterforge.inputs import read_network
+
+    mapping = load_mapping(EXAMPLES / f"{name}.yaml")
+    network = read_network(city(name), mapping)
+    proposal = tmp_path / "empty.gpkg"
+    spec = mapping.of_kind("pipes")[0]   # an empty pipe layer with the mapped fields
+    pipes_layer = spec.layer
+    frame = gpd.GeoDataFrame({f: [] for f in spec.source_fields()} | {"geometry": []},
+                             geometry="geometry", crs=network.crs)
+    frame.to_file(proposal, layer=pipes_layer, driver="GPKG")
+    result = check_proposal(network, str(proposal), mapping, run_epanet=False)
+    assert [i for i in result.issues if i.status in ("new", "resolved")] == []
+
+
+def test_wellington_solve_reports_its_missing_inputs():
+    mapping = load_mapping(EXAMPLES / "wellington.yaml")
+    result = check_network(city("wellington"), mapping, solves=True)
+    [issue] = [i for i in result.issues if i.rule == "WE-09"]
+    inputs = issue.data["inputs"]
+    assert inputs["with_elevation"] > 10_000 and inputs["with_demand"] == 0
+    assert issue.cause   # error 110: the unfed pieces

@@ -74,7 +74,10 @@ class Issue:
 
 
 def _location(geometry: BaseGeometry):
-    """A point as [x, y]; a line or several as their bounds' centre plus the bounds."""
+    """A point as [x, y]; a line or several as their bounds' centre plus the bounds; None for
+    an issue about the whole network."""
+    if geometry is None or geometry.is_empty:
+        return None
     if geometry.geom_type == "Point":
         return [round(geometry.x, 3), round(geometry.y, 3)]
     x0, y0, x1, y1 = geometry.bounds

@@ -28,6 +28,8 @@ def check(network: Network, model: Model, mapping: Mapping) -> list[Issue]:
     issues += crossings(network, mapping)
     issues += duplicates(model, mapping)
     issues += fittings(network, model, mapping)
+    issues += points_on_pipes(network, mapping)
+    issues += size_changes(network, model, mapping)
     if mapping.has_node_ids:
         issues += node_id_checks(network, mapping)
     return issues
@@ -290,4 +292,75 @@ def node_id_checks(network: Network, mapping: Mapping) -> list[Issue]:
             "WG-14", f"Pipes recording node {recorded[group.index[0]]} don't meet in the "
             "drawing", [feature(r.layer, r.fid) for r in rows.itertuples()],
             ends[group.index[0]], data={"node": str(recorded[group.index[0]])}))
+    return issues
+
+
+# Point assets that should split the pipe they sit on (WG-03). Tapping bands sit on a main's
+# side by design (a service connection); end caps are at pipe ends (WG-01, WG-07).
+SPLITTING_TYPES = ("isolation", "prv", "psv", "pbv", "fcv", "tcv", "pump", "tee", "cross",
+                   "reducer")
+
+
+def points_on_pipes(network: Network, mapping: Mapping) -> list[Issue]:
+    """WG-03: a valve, pump, tee, cross or reducer near a pipe sits on a vertex or pipe end."""
+    s = mapping.settings
+    pts = network.points
+    pts = pts[pts.asset.isin(["valve", "pump", "fitting"])
+              & pts.asset_type.isin(SPLITTING_TYPES)].reset_index(drop=True)
+    pipes = network.pipes
+    if pts.empty or pipes.empty:
+        return []
+    geoms = pipes.geometry.values
+    idx, dist = shapely.STRtree(geoms).query_nearest(
+        pts.geometry.values, max_distance=s.at_asset, return_distance=True, all_matches=False)
+    coords = [shapely.multipoints(shapely.get_coordinates(g)) for g in geoms[idx[1]]]
+    to_vertex = shapely.distance(pts.geometry.values[idx[0]], np.asarray(coords))
+    issues = []
+    for k, (i, j) in enumerate(zip(idx[0], idx[1])):
+        row, pipe = pts.iloc[i], pipes.iloc[j]
+        name = (f"{row.asset_type.upper()} {row.fid}" if row.asset == "valve"
+                and row.asset_type != "isolation" else f"{row.asset_type.capitalize()} {row.fid}"
+                if row.asset == "fitting" else f"{row.asset.capitalize()} {row.fid}")
+        if dist[k] > s.tolerance:
+            issues.append(Issue("WG-03", f"{name} is {dist[k]:.2f} m beside pipe {pipe.fid}, "
+                                "not on it", [feature(row.layer, row.fid),
+                                              feature(pipe.layer, pipe.fid)], row.geometry,
+                                severity="info", data={"distance_m": round(float(dist[k]), 3)}))
+        elif to_vertex[k] > s.tolerance:
+            issues.append(Issue("WG-03", f"{name} is on pipe {pipe.fid} between its vertices: "
+                                "the pipe isn't split there", [feature(row.layer, row.fid),
+                                                               feature(pipe.layer, pipe.fid)],
+                                row.geometry))
+    return issues
+
+
+def size_changes(network: Network, model: Model, mapping: Mapping) -> list[Issue]:
+    """WG-11: two pipes of different diameters meet with no fitting or valve there."""
+    s = mapping.settings
+    pipes = model.links[model.links.kind == "pipe"]
+    ends = pd.DataFrame({"node": np.concatenate([pipes.start.values, pipes.end.values]),
+                         "d": np.tile(pipes.diameter_mm.values, 2),
+                         "layer": np.tile(pipes.layer.values, 2),
+                         "fid": np.tile(pipes.fid.values, 2)})
+    ends = ends[ends.d > 0]
+    groups = ends.groupby("node")
+    stats = groups.agg(k=("d", "size"), sizes=("d", "nunique"), features=("fid", "nunique"))
+    nodes = stats.index[(stats.k == 2) & (stats.sizes == 2) & (stats.features == 2)]
+    j = model.junctions.set_index("name")
+    nodes = [n for n in nodes if n in j.index]
+    if not nodes:
+        return []
+    where = shapely.points(j.loc[nodes, "x"].values, j.loc[nodes, "y"].values)
+    marks = network.points[network.points.asset.isin(["fitting", "valve", "pump"])]
+    near = nearest_distance(where, marks.geometry.values) <= s.at_asset
+    issues = []
+    for node, point, fitted in zip(nodes, where, near):
+        if fitted:
+            continue
+        rows = ends[ends.node == node]
+        a, b = rows.iloc[0], rows.iloc[1]
+        issues.append(Issue("WG-11", f"Pipes {a.fid} ({a.d:g} mm) and {b.fid} ({b.d:g} mm) meet "
+                            "with no fitting or valve recorded there",
+                            [feature(a.layer, a.fid), feature(b.layer, b.fid)], point,
+                            data={"diameters_mm": [float(a.d), float(b.d)]}))
     return issues

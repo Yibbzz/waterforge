@@ -47,6 +47,32 @@ jobs:
       - name: Offline tests
         run: uv run pytest
 
+  postgis:
+    name: PostGIS input
+    # pyogrio's bundled GDAL has no PostgreSQL driver: PostGIS is read with psycopg
+    # (waterforge[postgis]). Checks the same network read from PostGIS.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: wf
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: PostGIS tests
+        env:
+          WATERFORGE_POSTGIS: "PG:host=localhost port=5432 dbname=postgres user=postgres password=wf"
+        run: uv run pytest -m postgis -v
+
   realdata:
     name: Whole cities + deep property tests
     # Downloads Townsville's and Wellington's open data (never committed) and checks the

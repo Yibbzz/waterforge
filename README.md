@@ -15,12 +15,15 @@ WaterForge then:
   main's side without that main being split leaves part of the network unfed in EPANET;
 - builds the EPANET model through documented conversion steps, reporting every change it
   makes to its own copy (the source is never modified);
-- asks EPANET 2.3.5 whether it agrees, and reports any disagreement.
+- asks EPANET 2.3.5 whether it agrees, and reports any disagreement;
+- checks a proposed change against the existing network and fails only on the problems the
+  change introduces, never on old errors.
 
-> **Status: pre-alpha (0.1.0.dev0).** Checking whole networks and exporting `.inp` work and are
-> tested on two cities' open data (Townsville, Australia and Wellington, New Zealand).
-> Proposed-change checks (`--proposed`), the Solves level and control valves are next. Flags and
-> JSON shapes may still change before 0.1.0.
+> **Status: pre-alpha (0.1.0.dev0).** All 25 rules of the brief are implemented. Checking whole
+> networks and proposals, exporting `.inp` and the steady-state run are tested on two cities'
+> open data (Townsville, Australia and Wellington, New Zealand) and on EPANET's example
+> networks. A water modeller's review is still to come. Flags and JSON shapes may still change
+> before 0.1.0.
 
 ## Install
 
@@ -45,6 +48,12 @@ uv run waterforge check --network network.gpkg --mapping utility.yaml --json \
 # One family only: GIS rules (WG) or analysis rules (WE)
 uv run waterforge check --network network.gpkg --mapping utility.yaml --checks gis
 
+# A proposed change: only the problems it introduces fail (old errors are pre-existing)
+uv run waterforge check --network network.gpkg --proposed design.gpkg --mapping utility.yaml
+
+# Also run the model once with the recorded elevations, demands and source heads
+uv run waterforge check --network network.gpkg --mapping utility.yaml --solve
+
 # An EPANET model, plus a table from each model element to its GIS feature
 uv run waterforge export --network network.gpkg --mapping utility.yaml --inp network.inp
 
@@ -52,8 +61,9 @@ uv run waterforge rules     # every rule: ID, severity, level
 uv run waterforge info      # versions, asset types, exit codes
 ```
 
-`--network` takes any GDAL source: GeoPackage, Shapefile folder, File Geodatabase, or PostGIS
-(`"PG:dbname=water host=db"`). Example mappings: [`examples/`](examples/).
+`--network` takes a GeoPackage, Shapefile folder or File Geodatabase (anything GDAL reads), or
+PostGIS (`"PG:host=db dbname=water user=gis"`; install with `uv sync --extra postgis` or
+`pip install 'waterforge[postgis]'`). Example mappings: [`examples/`](examples/).
 
 Exit codes: 0 nothing failing, 1 unexpected error, 2 bad usage, 3 unusable input or mapping,
 5 issues that fail under `--fail-on` (`export`: a model EPANET can't load).
@@ -69,11 +79,17 @@ On Townsville's 30,553 mains and Wellington's 33,688 (each checked in about 15 s
 | Tanks and reservoirs joined / in the data (WG-16) | 143 / 147 | 72 / 77 |
 | Pieces no source reaches, closed valves left open (WE-08) | 49 | 175 |
 | ... with closed valves cutting the network (the default) | 122 | 265 |
+| Valves and tees on a pipe between its vertices (WG-03) | 145 | 236 |
+| Size changes with no fitting recorded (WG-11) | 239 | 326 |
 | EPANET 2.3.5 | loads the export | loads the export |
 
 The counts with closed valves left open match the hand-made evaluation in
 [open-water-checks](https://github.com/Yibbzz/open-water-checks) exactly; a nightly test
-keeps them that way.
+keeps them that way. EPANET's example networks Net1 to Net3 survive a round trip through GIS
+layers with every node, link and connection intact.
+
+How it compares with Esri's Utility Network, capability by capability:
+[docs/esri-utility-network.md](docs/esri-utility-network.md).
 
 ## What it doesn't do
 
