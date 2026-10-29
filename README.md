@@ -63,7 +63,9 @@ uv run waterforge info      # versions, asset types, exit codes
 
 `--network` takes a GeoPackage, Shapefile folder or File Geodatabase (anything GDAL reads), or
 PostGIS (`"PG:host=db dbname=water user=gis"`; install with `uv sync --extra postgis` or
-`pip install 'waterforge[postgis]'`). Example mappings: [`examples/`](examples/).
+`pip install 'waterforge[postgis]'`). `--dem terrain.tif` fills missing junction elevations
+from a terrain raster (`waterforge[dem]`). Example mappings: [`examples/`](examples/).
+The JSON output is documented, field by field, in [docs/json.md](docs/json.md).
 
 Exit codes: 0 nothing failing, 1 unexpected error, 2 bad usage, 3 unusable input or mapping,
 5 issues that fail under `--fail-on` (`export`: a model EPANET can't load).

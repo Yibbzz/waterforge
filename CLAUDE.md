@@ -71,6 +71,7 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   `id` = fingerprint (rule + sorted features + location rounded to the tolerance).
 - `report.py` - report JSON, issues GeoPackage (issue_points / issue_lines), element table.
 - `postgis.py` - PostGIS layers via psycopg (`list_layers`, `fields`, `read_layer`), read-only.
+- `dem.py` - `sample(path, xs, ys, crs)`: terrain raster values (rasterio, extra `dem`).
 - `errors.py` - `WaterForgeError` / `InputError` / `MappingError` / `EpanetError`.
 
 ## Decisions (dated)
@@ -100,6 +101,12 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 - 2026-10-28: proposals: `--fail-on new|all|none` + `--fail-level error|warning` (the old
   `--fail-on error|warning|none` is gone). A proposed pipe meeting an existing pipe's side
   splits it (a designed connection, not WG-12). WE-08 matched by pipes.
+- 2026-10-28: JSON output format 1 (docs/json.md, `cli.FORMAT`, tests/integration/
+  test_json_contract.py). The EPANET summary uses `accepts_input` / `runs` (was
+  `opened` / `loads`). Adding keys isn't breaking; anything else bumps `FORMAT`.
+- 2026-10-28: pumps with `design_flow` + `design_head` get a one-point head curve (C<pump>);
+  else POWER. `--dem` (extra `dem`, rasterio) fills missing elevations before the
+  nearest-known fill.
 - 2026-10-28: Wellington tanks: `twl_m` (top water level, m above datum, checked against the
   ground beside each tank) is the head; `elevation_m` is empty for tanks.
 
@@ -137,9 +144,10 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 
 1. A modeller reviews the rules on real data (the modeller summary doc in open-water-checks);
    fold their answers in (defaults: 1 mm, 1 m, 25 m; split side joins; closed valves).
-2. Pump curves and patterns in the mapping; a DEM for missing elevations; demands from
-   customer meters (the Solves level is basic: steady state, token-free).
-3. Release v0.1 once the brief's "Done for water" list is ticked (left: the modeller review,
-   freezing the JSON shapes, the tag).
+2. Demands from customer meters or billing; multi-point pump curves and patterns (the Solves
+   level is a single steady state). Try `--dem` on Wellington with LINZ's 8 m DEM.
+3. Release v0.1 once the brief's "Done for water" list is ticked (left: the modeller review
+   and the tag: bump `version`, move CHANGELOG's Unreleased to [0.1.0], push `v0.1.0`;
+   `.github/workflows/release.yml` builds and publishes the GitHub release).
 4. Later: a `connections:` rule table (which asset types may connect), Gusnet layers as an
    output, the QGIS plugin in its own repo.

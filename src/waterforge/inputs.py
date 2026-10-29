@@ -49,8 +49,8 @@ PIPE_COLUMNS = ["layer", "fid", "part", "diameter_mm", "diameter_text", "materia
                 "start_node", "end_node", "remove", "geometry"]
 POINT_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", *NUMBER_COLUMNS, "remove",
                  "geometry"]
-LINK_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", "setting", "power", "remove",
-                "geometry"]
+LINK_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", "setting", "power",
+                "design_flow", "design_head", "remove", "geometry"]
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 _YES = {"yes", "y", "true", "1", "t"}
 

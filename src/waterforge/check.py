@@ -42,9 +42,14 @@ class CheckResult:
         return {
             "pipes": len(self.network.pipes), "point_assets": len(self.network.points),
             "model": {"junctions": len(self.model.junctions),
-                      "reservoirs": len(self.model.reservoirs),
+                      "reservoirs": int((self.model.reservoirs.kind != "tank").sum()),
+                      "tanks": int((self.model.reservoirs.kind == "tank").sum()),
                       "pipes": int((self.model.links.kind == "pipe").sum()),
-                      "closed_valves": int((self.model.links.kind == "valve").sum())},
+                      "closed_valves": int(((self.model.links.kind == "valve")
+                                            & (self.model.links.status == "Closed")).sum()),
+                      "control_valves": int(((self.model.links.kind == "valve")
+                                             & self.model.links.valve_type.notna()).sum()),
+                      "pumps": int((self.model.links.kind == "pump").sum())},
             "changes": self.model.changes,
             "issues": dict(sorted(by_rule.items())),
             "severity": {k: by_severity.get(k, 0) for k in ("error", "warning", "info")},
@@ -127,7 +132,9 @@ def solves_level(model: Model, mapping: Mapping):
     j = model.junctions
     c = model.changes
     demand = float(j.demand.sum())
-    inputs = {"junctions": len(j), "with_elevation": int(c.get("junctions_with_elevation", 0)),
+    inputs = {"junctions": len(j),
+              "with_elevation": int(c.get("junctions_with_elevation", 0))
+              + int(c.get("elevations_from_dem", 0)),
               "with_demand": int((j.demand != 0).sum()), "total_demand_lps": round(demand, 3),
               "sources_default_head": int(c.get("sources_default_head", 0)),
               "pumps_default_power": int(c.get("pumps_default_power", 0))}

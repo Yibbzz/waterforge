@@ -20,7 +20,8 @@ import pandas as pd
 
 LINK_KINDS = ("pipe", "valve", "pump", "connector")
 LINK_COLUMNS = ["name", "kind", "start", "end", "length", "diameter_mm", "roughness", "status",
-                "valve_type", "setting", "power", "layer", "fid", "part", "piece", "geometry"]
+                "valve_type", "setting", "power", "design_flow", "design_head", "layer", "fid",
+                "part", "piece", "geometry"]
 SOURCE_COLUMNS = ["name", "kind", "x", "y", "head", "elevation", "init_level", "min_level",
                   "max_level", "diameter", "layer", "fid"]
 

@@ -28,7 +28,7 @@ def test_clean_network_exits_0(network, capsys):
     assert main(["check", "--network", path, "--mapping", mapping, "--json"]) == 0
     out = events(capsys)
     assert out[-1]["event"] == "done" and out[-1]["failing"] == 0
-    assert out[-1]["summary"]["epanet"]["loads"] is True
+    assert out[-1]["summary"]["epanet"]["runs"] is True
     assert {e["event"] for e in out} <= {"progress", "issue", "done"}
 
 

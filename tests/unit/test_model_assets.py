@@ -152,3 +152,44 @@ def test_we09_negative_pressures(tmp_path):
     junctions = [(1, point(100, 0), 80, 2.0), (2, point(200, 0), 80, 1.0)]  # above the source
     [issue] = rules(solve_run(tmp_path, junctions), "WE-09")
     assert "below zero pressure" in issue.message or "fails" in issue.message
+
+
+def test_pump_duty_point_becomes_a_one_point_curve(tmp_path):
+    from tests.helpers import MAPPING, make_network
+    from waterforge.check import check_network
+    from waterforge.config import parse_mapping
+
+    data = {**MAPPING, "pumps": [{"layer": "pumps", "id": "uid", "design_flow": "power",
+                                  "design_head": "power"}]}   # the helper has one number field
+    points = {**BASE_POINTS, "structures": [(1, point(0, 0), "reservoir", None, 20)],
+              "junctions": [(1, point(100, 0), 0, 5.0)]}
+    path = make_network(tmp_path, BASE_PIPES, pumps=[(1, point(0, 0), 30)], **points)
+    result = check_network(path, parse_mapping(data), solves=True)
+    [pump] = links_of(result, "pump").itertuples()
+    assert (pump.design_flow, pump.design_head) == (30.0, 30.0)
+    assert result.solved.ran and result.model.changes.get("pumps_default_power", 0) == 0
+
+
+def test_dem_fills_missing_elevations(tmp_path):
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from tests.helpers import X, Y, make_network, mapping
+    from waterforge.check import check_network
+
+    # a 400 m square raster rising 1 m per 10 m eastwards, in another CRS's units: NZTM too
+    dem = tmp_path / "dem.tif"
+    values = np.tile(np.arange(40, dtype="float32"), (40, 1))
+    with rasterio.open(dem, "w", driver="GTiff", height=40, width=40, count=1,
+                       dtype="float32", crs="EPSG:2193", nodata=-9999,
+                       transform=from_origin(X - 50, Y + 200, 10, 10)) as out:
+        out.write(values, 1)
+    path = make_network(tmp_path, BASE_PIPES, junctions=[(1, point(100, 0), 99.0, 0)],
+                        **BASE_POINTS)
+    m = mapping(settings={"dem": str(dem)})
+    j = check_network(path, m, run_epanet=False).model.junctions
+    at = dict(zip(zip((j.x - X).round(), (j.y - Y).round()), j.elevation))
+    assert at[(100.0, 0.0)] == 99.0               # recorded: kept
+    assert at[(200.0, 0.0)] == 25.0               # column (200 + 50) / 10 of the DEM
+    assert at[(100.0, -80.0)] == 15.0

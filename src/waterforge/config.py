@@ -38,13 +38,13 @@ KIND_FIELDS = {
     "fittings": {"type", "elevation"},
     "valves": {"closed", "type", "setting", "elevation"},
     "hydrants": {"elevation"},
-    "pumps": {"power", "elevation"},
+    "pumps": {"power", "design_flow", "design_head", "elevation"},
     "structures": {"type", "elevation", "head", "init_level", "min_level", "max_level",
                    "tank_diameter"},
 }
 # Fields holding a number (read as floats; a value that isn't a number is WG-09).
-NUMBER_FIELDS = ("elevation", "demand", "roughness", "setting", "power", "head", "init_level",
-                 "min_level", "max_level", "tank_diameter")
+NUMBER_FIELDS = ("elevation", "demand", "roughness", "setting", "power", "design_flow",
+                 "design_head", "head", "init_level", "min_level", "max_level", "tank_diameter")
 # Plain field names (the rest are value maps: type, closed).
 PLAIN_FIELDS = ("diameter", "material", "start_node", "end_node") + NUMBER_FIELDS
 LAYER_KEYS = {"layer", "where", "id"}
@@ -82,6 +82,8 @@ class LayerSpec:
     demand: str | None = None
     setting: str | None = None
     power: str | None = None
+    design_flow: str | None = None
+    design_head: str | None = None
     head: str | None = None
     init_level: str | None = None
     min_level: str | None = None
@@ -112,6 +114,7 @@ class Settings:
     blank_node_values: tuple[str, ...] = ("", "unknown", "none", "null")
     pump_power_kw: float = 10.0     # kW: a pump with no power recorded (no curves yet)
     remove_field: str = "remove"    # in a proposal: features to remove (yes / true / 1)
+    dem: str = ""                   # a terrain raster for junctions with no elevation
 
 
 @dataclass(frozen=True)

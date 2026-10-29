@@ -36,6 +36,8 @@ dependencies = [
 # psycopg directly (src/waterforge/postgis.py).
 [project.optional-dependencies]
 postgis = ["psycopg[binary]>=3.1"]
+# Elevations for junctions with none recorded, sampled from a terrain raster (--dem).
+dem = ["rasterio>=1.3"]
 
 [project.scripts]
 waterforge = "waterforge.cli:main"
@@ -63,6 +65,7 @@ dev = [
     "pytest-cov>=5",
     "ruff>=0.6",
     "psycopg[binary]>=3.1",
+    "rasterio>=1.3",
 ]
 
 [tool.pytest.ini_options]

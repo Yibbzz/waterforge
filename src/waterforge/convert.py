@@ -366,10 +366,13 @@ def build_model(network: Network, mapping: Mapping, fill_sizes: bool = False):
                "geometry": row.geometry if line_row is not None
                else shapely.LineString([node_xy[a], node_xy[b]])}
         if kind == "pump":
+            duty = row.design_flow > 0 and row.design_head > 0
             power = row.power if row.power > 0 else s.pump_power_kw
-            if not row.power > 0:
+            if not (duty or row.power > 0):
                 changes["pumps_default_power"] += 1
-            rec.update(valve_type=None, setting=np.nan, power=float(power))
+            rec.update(valve_type=None, setting=np.nan, power=np.nan if duty else float(power),
+                       design_flow=float(row.design_flow) if duty else np.nan,
+                       design_head=float(row.design_head) if duty else np.nan)
         elif row.asset_type == "isolation":
             rec.update(status="Closed", valve_type=None, setting=np.nan, power=np.nan)
         else:
@@ -393,7 +396,7 @@ def build_model(network: Network, mapping: Mapping, fill_sizes: bool = False):
     source_table = pd.DataFrame([r for r in source_rows if r is not None], columns=SOURCE_COLUMNS)
 
     # 8. junction elevations and demands
-    _junction_data(junctions, jpoints, pts, s, steps, changes)
+    _junction_data(junctions, jpoints, pts, s, steps, changes, network.crs)
 
     model = Model(junctions, source_table, all_links, dict(changes))
     log.info("Model: %s junctions, %s pipes, %s valves / pumps, %s sources (%s joined by a "
@@ -447,7 +450,7 @@ def _source(name, row, s, changes) -> dict:
             "fid": row.fid}
 
 
-def _junction_data(junctions, jpoints, pts, s, steps, changes):
+def _junction_data(junctions, jpoints, pts, s, steps, changes, crs=None):
     """Elevations and demands from point assets at each junction (within at_asset)."""
     if len(junctions) == 0:
         return
@@ -471,6 +474,16 @@ def _junction_data(junctions, jpoints, pts, s, steps, changes):
         changes["demands_not_at_a_junction"] = len(with_demand) - len(idx[0])
     known = junctions.elevation.notna().to_numpy()
     changes["junctions_with_elevation"] = int(known.sum())
+    if s.dem and not known.all():
+        from .dem import sample
+
+        values = sample(s.dem, junctions.x.to_numpy()[~known], junctions.y.to_numpy()[~known],
+                        crs)
+        idx = np.flatnonzero(~known)
+        got = ~np.isnan(values)
+        junctions.loc[junctions.index[idx[got]], "elevation"] = values[got]
+        changes["elevations_from_dem"] = int(got.sum())
+        known = junctions.elevation.notna().to_numpy()
     if steps.fill_elevations and known.any() and not known.all():
         near = shapely.STRtree(jpoints[known]).query_nearest(jpoints[~known],
                                                             all_matches=False)[1]

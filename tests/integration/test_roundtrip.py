@@ -29,7 +29,7 @@ MAPPING = {
     "valves": [{"layer": "valves", "id": "id", "setting": "setting",
                 "type": {"field": "type", "values": {"PRV": "prv", "PSV": "psv", "PBV": "pbv",
                                                      "FCV": "fcv", "TCV": "tcv"}}}],
-    "pumps": [{"layer": "pumps", "id": "id"}],
+    "pumps": [{"layer": "pumps", "id": "id", "design_flow": "flow", "design_head": "head"}],
     "structures": [{"layer": "sources", "id": "id", "head": "head", "elevation": "elevation",
                     "init_level": "init", "min_level": "low", "max_level": "high",
                     "tank_diameter": "diameter",
@@ -67,7 +67,14 @@ def read_example(path):
             inner = [(X0 + x * SCALE, Y0 + y * SCALE)
                      for x, y in (en.getvertex(ph, i, k)
                                   for k in range(1, en.getvertexcount(ph, i) + 1))]
+            duty = (None, None)
+            if t == en.PUMP and en.getheadcurveindex(ph, i):
+                curve = en.getheadcurveindex(ph, i)
+                points = [en.getcurvevalue(ph, curve, k)
+                          for k in range(1, en.getcurvelen(ph, curve) + 1)]
+                duty = tuple(points[len(points) // 2])   # one point, or a 3-point curve's middle
             links[en.getlinkid(ph, i)] = {
+                "duty": duty,
                 "kind": kind, "nodes": (a, b), "inner": inner,
                 "diameter": en.getlinkvalue(ph, i, en.DIAMETER),
                 "roughness": en.getlinkvalue(ph, i, en.ROUGHNESS),
@@ -94,8 +101,9 @@ def to_gis(nodes, links, path):
     write("pipes", [{"id": k, "diameter": v["diameter"], "roughness": v["roughness"],
                      "geometry": geometry(v)} for k, v in links.items() if v["kind"] == "pipe"],
           ["id", "diameter", "roughness"])
-    write("pumps", [{"id": k, "geometry": geometry(v)} for k, v in links.items()
-                    if v["kind"] == "pump"], ["id"])
+    write("pumps", [{"id": k, "flow": v["duty"][0], "head": v["duty"][1],
+                     "geometry": geometry(v)} for k, v in links.items()
+                    if v["kind"] == "pump"], ["id", "flow", "head"])
     write("valves", [{"id": k, "type": v["valve"], "setting": v["setting"],
                       "geometry": geometry(v)} for k, v in links.items()
                      if v["kind"] == "valve"], ["id", "type", "setting"])
@@ -146,6 +154,8 @@ def test_example_network_round_trip(name, bend, tmp_path, capsys):
     for element, link in out_links.items():
         original = links[feature_of[element]]
         assert link["kind"] == original["kind"]
+        if link["kind"] == "pump":   # the duty point survives as a one-point curve
+            assert link["duty"] == pytest.approx(original["duty"])
         for mine, theirs in zip(link["nodes"], original["nodes"]):
             assert match.setdefault(theirs, mine) == mine, f"{theirs} joined twice"
     assert len(set(match.values())) == len(match) == len(nodes)

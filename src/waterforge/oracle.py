@@ -67,7 +67,7 @@ class EpanetResult:
         return found | {"WE-08"} if self.disconnected else found
 
     def as_dict(self) -> dict:
-        out = {"version": EPANET_VERSION, "loads": self.ran, "opened": self.opened,
+        out = {"version": EPANET_VERSION, "accepts_input": self.opened, "runs": self.ran,
                "errors": self.errors, "messages": self.messages[:20]}
         if self.pressures:
             out["pressures"] = self.pressures
@@ -105,9 +105,14 @@ def write_inp(model: Model, path, title: str = "WaterForge", token_demand: float
             for n, a, b, d, t, s in zip(valves.name, valves.start, valves.end,
                                         valves.diameter_mm, valves.valve_type, valves.setting)]
     pumps = k[k.kind == "pump"]
+    duty = pumps.design_flow.notna() & pumps.design_head.notna()
     out.append("\n[PUMPS]\n;ID\tNode1\tNode2\tParameters\n")
-    out += [f"{n}\t{a}\t{b}\tPOWER {p:g}\n"
-            for n, a, b, p in zip(pumps.name, pumps.start, pumps.end, pumps.power)]
+    out += [f"{n}\t{a}\t{b}\t" + (f"HEAD C{n}" if d else f"POWER {p:g}") + "\n"
+            for n, a, b, p, d in zip(pumps.name, pumps.start, pumps.end, pumps.power, duty)]
+    out.append("\n[CURVES]\n;ID\tFlow\tHead\n")   # one-point pump curves: the duty point
+    out += [f"C{n}\t{q:g}\t{h:g}\n" for n, q, h in zip(pumps.name[duty],
+                                                     pumps.design_flow[duty],
+                                                     pumps.design_head[duty])]
     out.append("\n[COORDINATES]\n;Node\tX\tY\n")
     out += [f"{n}\t{x:.3f}\t{y:.3f}\n" for n, x, y in zip(j.name, j.x, j.y)]
     out += [f"{n}\t{x:.3f}\t{y:.3f}\n" for n, x, y in zip(r.name, r.x, r.y)]

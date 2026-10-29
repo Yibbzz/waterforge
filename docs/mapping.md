@@ -54,7 +54,9 @@ junctions:                   # optional points at pipe ends: elevations and dema
 pumps:                       # points, or lines drawn as links
   - layer: pumps
     id: PUMP_ID
-    power: POWER_KW          # kW; pump curves aren't read yet
+    design_flow: DUTY_FLOW   # L/s and m at the duty point: a one-point pump curve
+    design_head: DUTY_HEAD
+    power: POWER_KW          # kW: used when there is no duty point
 
 structures:                  # tanks, reservoirs, pump stations, ...
   - layer: structures
@@ -137,6 +139,7 @@ settings:
   blank_node_values: ["", unknown, none, "null"]       # recorded node ids meaning "none"
   pump_power_kw: 10.0      # kW: a pump with no power mapped
   remove_field: remove     # in a proposal: the field marking features to remove
+  dem: ""                  # a terrain raster for junctions with no elevation (or --dem)
 
 steps:                     # the conversion steps (rules.md#from-gis-to-epanet-the-conversion-steps)
   split_side_joins: true
@@ -145,7 +148,8 @@ steps:                     # the conversion steps (rules.md#from-gis-to-epanet-t
   close_valves: true
   fill_sizes: false        # check: off unless set; export: on unless set to false
   default_size_mm: 100
-  fill_elevations: true    # a junction with no elevation takes the nearest known one
+  fill_elevations: true    # a junction with no elevation (after the DEM) takes the nearest
+                           # known one
 
 severity:                  # error, warning, info or off
   WG-04: off

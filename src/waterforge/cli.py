@@ -49,6 +49,9 @@ from .report import write_element_table, write_issues, write_report
 from .rules.catalogue import RULES
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_INPUT, _UNUSED, EXIT_FAILING = range(6)
+# The JSON output's format (docs/json.md). Bump it on any breaking change to events, the
+# report or the issues layer; adding a key is not breaking.
+FORMAT = 1
 FAIL_ON = ("new", "all", "none")
 FAIL_LEVEL = ("error", "warning")
 
@@ -76,8 +79,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 # ---------------------------------------------------------------- commands
 
-def cmd_check(args, emit) -> int:
+def _load(args):
     mapping = load_mapping(args.mapping, args.rules)
+    if getattr(args, "dem", None):
+        from dataclasses import replace
+
+        mapping = replace(mapping, settings=replace(mapping.settings, dem=args.dem))
+    return mapping
+
+
+def cmd_check(args, emit) -> int:
+    mapping = _load(args)
     _check_outputs(args.report, args.issues, args.baseline_out)
     if (args.baseline or args.baseline_out) and not args.proposed:
         raise InputError("--baseline and --baseline-out go with --proposed.")
@@ -97,13 +109,14 @@ def cmd_check(args, emit) -> int:
     if args.baseline_out:
         outputs["baseline"] = str(args.baseline_out)
     failing = _failing(issues, args.fail_on, args.fail_level)
-    emit({"event": "done", "failing": failing, "summary": summary, "outputs": outputs},
+    emit({"event": "done", "format": FORMAT, "failing": failing, "summary": summary,
+          "outputs": outputs},
          text=_summary_text(result, summary, failing, args, outputs, issues))
     return EXIT_FAILING if failing else EXIT_OK
 
 
 def cmd_export(args, emit) -> int:
-    mapping = load_mapping(args.mapping, args.rules)
+    mapping = _load(args)
     table = Path(args.table) if args.table else Path(args.inp).with_suffix(".csv")
     _check_outputs(args.inp, table, args.report, args.issues)
     fill = mapping.steps.fill_sizes is not False  # on unless the rule pack says off
@@ -117,9 +130,11 @@ def cmd_export(args, emit) -> int:
     outputs.update(_write_outputs(args, result, "export", result.issues, result.summary()))
     summary = result.summary()
     loads = check.opened
-    emit({"event": "done", "loads": loads, "summary": summary, "outputs": outputs},
+    emit({"event": "done", "format": FORMAT, "loads": loads, "summary": summary,
+          "outputs": outputs},
          text=f"Wrote {args.inp} ({summary['model']['junctions']:,} junctions, "
-              f"{summary['model']['pipes']:,} pipes, {summary['model']['reservoirs']} sources) "
+              f"{summary['model']['pipes']:,} pipes, "
+              f"{summary['model']['reservoirs'] + summary['model']['tanks']} sources) "
               f"and {table}.\nEPANET {EPANET_VERSION}: "
               + ("loads it" if loads else "refuses it: " + "; ".join(check.messages[:3]))
               + (f"; the hydraulic run stops: {check.messages[0]}" if loads and not check.ran
@@ -136,7 +151,8 @@ def cmd_rules(args, emit) -> int:
 
 
 def cmd_info(args, emit) -> int:
-    info = {"event": "info", "waterforge": version("waterforge"), "epanet": EPANET_VERSION,
+    info = {"event": "info", "format": FORMAT, "waterforge": version("waterforge"),
+            "epanet": EPANET_VERSION,
             "asset_kinds": ["pipes", "fittings", "valves", "hydrants", "structures"],
             "fitting_types": sorted(FITTING_TYPES), "structure_types": sorted(STRUCTURE_TYPES),
             "rules": len(RULES), "implemented": sum(r.implemented for r in RULES.values()),
@@ -167,7 +183,8 @@ def _write_outputs(args, result, command, issues, summary) -> dict:
     outputs = {}
     if args.report:
         write_report(args.report, issues, summary,
-                     {"waterforge": version("waterforge"), "epanet": EPANET_VERSION,
+                     {"format": FORMAT, "waterforge": version("waterforge"),
+                      "epanet": EPANET_VERSION,
                       "command": command, "network": str(args.network),
                       "mapping": str(args.mapping)})
         outputs["report"] = str(args.report)
@@ -178,10 +195,12 @@ def _write_outputs(args, result, command, issues, summary) -> dict:
 
 
 def _summary_text(result, summary, failing, args, outputs, issues) -> str:
-    lines = [f"{summary['pipes']:,} pipes -> model of {summary['model']['junctions']:,} "
-             f"junctions, {summary['model']['pipes']:,} pipes, "
-             f"{summary['model']['reservoirs']} sources, "
-             f"{summary['model']['closed_valves']} closed valves"]
+    m = summary["model"]
+    lines = [f"{summary['pipes']:,} pipes -> model of {m['junctions']:,} junctions, "
+             f"{m['pipes']:,} pipes, {m['reservoirs'] + m['tanks']} sources, "
+             f"{m['closed_valves']} closed valves"
+             + (f", {m['control_valves']} control valves" if m["control_valves"] else "")
+             + (f", {m['pumps']} pumps" if m["pumps"] else "")]
     proposal = summary.get("proposal")
     if proposal:
         made = {k: v for k, v in proposal.items() if k != "status" and v}
@@ -257,6 +276,8 @@ def _parser() -> argparse.ArgumentParser:
         p.add_argument("--rules", help="YAML rule pack: settings, steps, severity")
         p.add_argument("--report", help="write every issue and the summary to this JSON file")
         p.add_argument("--issues", help="write issue points and lines to this GeoPackage")
+        p.add_argument("--dem", help="a terrain raster: elevations for junctions with none "
+                                     "recorded (needs waterforge[dem])")
 
     check = sub.add_parser("check", parents=[common], help="check a network against the rules")
     network_args(check)

@@ -96,8 +96,17 @@ def run_tree(folder, tree, **kwargs):
 
 # Proposals --------------------------------------------------------------------------------
 
+STUB = (4000, f"LINESTRING ({1_749_000.0 - 0.5} {5_423_000.0 + 10}, "
+              f"{1_749_000.0 - 0.5} {5_423_000.0 + 40})", 100)
+
+
 def _extension(pipes, points, choice):
-    """A correct extension: a new pipe from an existing grid point to a free neighbour."""
+    """
+    A correct extension: a new pipe from an existing grid point to a free neighbour, kept
+    clear of the planted near-miss stub (a new pipe drawn 0.5 m from an old loose end is a
+    new near miss, rightly: found by Hypothesis in CI, 2026-10-28).
+    """
+    from shapely import wkt as shapely_wkt
     def grid(wkt_point):
         x, y = map(float, wkt_point.split("(")[1].rstrip(")").split())
         return round((x - 1_749_000.0) / GRID), round((y - 5_423_000.0) / GRID)
@@ -112,10 +121,13 @@ def _extension(pipes, points, choice):
     options = [(a, (a[0] + dx, a[1] + dy)) for a in sorted(used)
                for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]
                if (a[0] + dx, a[1] + dy) not in used]
-    a, b = options[choice % len(options)]
-
     def xy(g):
         return f"{1_749_000.0 + g[0] * GRID} {5_423_000.0 + g[1] * GRID}"
+
+    stub = shapely_wkt.loads(STUB[1])
+    options = [(a, b) for a, b in options
+               if shapely_wkt.loads(f"LINESTRING ({xy(a)}, {xy(b)})").distance(stub) > 2.0]
+    a, b = options[choice % len(options)]
 
     pipe = (5000, f"LINESTRING ({xy(a)}, {xy(b)})", 150)
     cap = (5000, f"POINT ({xy(b)})", "end cap")
@@ -130,9 +142,7 @@ def _with_old_errors(pipes, points, seed):
     fittings = list(points["fittings"])
     if fittings:
         fittings.pop(rng.integers(len(fittings)))
-    stub = (4000, f"LINESTRING ({1_749_000.0 - 0.5} {5_423_000.0 + 10}, "
-                  f"{1_749_000.0 - 0.5} {5_423_000.0 + 40})", 100)
-    return pipes + [stub], {**points, "fittings": fittings}
+    return pipes + [STUB], {**points, "fittings": fittings}
 
 
 @given(networks, st.integers(0, 1000))
