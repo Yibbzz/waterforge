@@ -71,7 +71,9 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   `id` = fingerprint (rule + sorted features + location rounded to the tolerance).
 - `report.py` - report JSON, issues GeoPackage (issue_points / issue_lines), element table.
 - `postgis.py` - PostGIS layers via psycopg (`list_layers`, `fields`, `read_layer`), read-only.
-- `dem.py` - `sample(path, xs, ys, crs)`: terrain raster values (rasterio, extra `dem`).
+- `dem.py` - `sample(path, xs, ys, crs)`: terrain raster values (rasterio, extra `dem`); `path`
+  is a raster or a folder of tiles (first tile with a value wins); reads one window around the
+  points, or point by point when that window would be huge.
 - `errors.py` - `WaterForgeError` / `InputError` / `MappingError` / `EpanetError`.
 
 ## Decisions (dated)
@@ -107,6 +109,10 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 - 2026-10-28: pumps with `design_flow` + `design_head` get a one-point head curve (C<pump>);
   else POWER. `--dem` (extra `dem`, rasterio) fills missing elevations before the
   nearest-known fill.
+- 2026-10-30: `--dem` takes a folder of tiles too (LINZ publishes 1 m DEMs as tiles). On
+  Wellington, LINZ's Wellington City 1 m DEM (2025) fills all 17,045 junctions with no level;
+  where levels are recorded it agrees (median 7 cm, 95% within 0.5 m), while the nearest-known
+  fill it replaces is > 10 m off at 2,129 junctions.
 - 2026-10-28: Wellington tanks: `twl_m` (top water level, m above datum, checked against the
   ground beside each tank) is the head; `elevation_m` is empty for tanks.
 
@@ -134,6 +140,9 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   postgis/postgis:16-3.4`, then `WATERFORGE_POSTGIS="PG:host=localhost port=55432
   dbname=postgres user=postgres password=wf" uv run pytest -m postgis`. Townsville read from
   PostGIS gives the same counts as from the GeoPackage (checked 2026-10-28).
+- LINZ's elevation tiles (public bucket `nz-elevation`, no account) are LERC-compressed:
+  the system GDAL here can't read them (`gdalbuildvrt` fails), rasterio's bundled GDAL can.
+  `tests/realdata/download.py data wellington-dem` fetches them.
 - owa-epanet raises Python warnings for EPANET warning codes: suppressed in `run_epanet`.
 - Fittings beside a junction (a few cm) cap branches not in the mapped pipes: WG-07 matches
   fittings within the tolerance only; WG-01 lets an end cap explain only its nearest pipe end.
@@ -145,7 +154,8 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 1. A modeller reviews the rules on real data (the modeller summary doc in open-water-checks);
    fold their answers in (defaults: 1 mm, 1 m, 25 m; split side joins; closed valves).
 2. Demands from customer meters or billing; multi-point pump curves and patterns (the Solves
-   level is a single steady state). Try `--dem` on Wellington with LINZ's 8 m DEM.
+   level is a single steady state). `--dem` done on Wellington (2026-10-30); possible next: a
+   rule for recorded levels far from the DEM (~0.1% of Wellington's are > 10 m off).
 3. Release v0.1 once the brief's "Done for water" list is ticked (left: the modeller review
    and the tag: bump `version`, move CHANGELOG's Unreleased to [0.1.0], push `v0.1.0`;
    `.github/workflows/release.yml` builds and publishes the GitHub release).

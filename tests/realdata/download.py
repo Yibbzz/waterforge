@@ -1,18 +1,24 @@
 """
 Download the two test cities' water networks from their public ArcGIS services.
 
-    uv run python -m tests.realdata.download data          # both, into data/
+    uv run python -m tests.realdata.download data          # both cities and the DEM, into data/
     uv run python -m tests.realdata.download data townsville
+    uv run python -m tests.realdata.download data wellington-dem   # the terrain tiles only
 
 Townsville City Council open data: CC BY 4.0, EPSG:7855.
 Wellington Water open data (WCC 3 Waters Asset Data, exported weekly from InfoNet): credit
 Wellington Water; not for commercial use or detailed engineering design. EPSG:2193.
+
+Wellington City LiDAR 1 m DEM (2025): Toitū Te Whenua LINZ, licensor Wellington City
+Council, CC BY 4.0; 12 Cloud-Optimised GeoTIFF tiles (about 245 MB) from LINZ's public
+bucket, into dem/wellington-city_2025/ (for `--dem`).
 
 The data is never committed. Layer names match examples/<city>.yaml.
 """
 
 import json
 import logging
+import re
 import sys
 import time
 import urllib.parse
@@ -42,6 +48,10 @@ CITIES = {
         "tanks": f"{WELLINGTON}/0", "pump_stations": f"{WELLINGTON}/9",
     }),
 }
+
+LINZ = "https://nz-elevation.s3.ap-southeast-2.amazonaws.com"
+DEMS = {"wellington-dem": ("wellington/wellington-city_2025/dem_1m/2193/",
+                           "dem/wellington-city_2025")}
 
 
 def fetch(layer_url: str, crs: str, order: str) -> gpd.GeoDataFrame:
@@ -81,9 +91,29 @@ def download(folder: Path, name: str) -> Path:
     return out
 
 
+def download_dem(folder: Path, name: str) -> Path:
+    """Every GeoTIFF tile under a prefix of LINZ's public elevation bucket."""
+    prefix, sub = DEMS[name]
+    out = folder / sub
+    out.mkdir(parents=True, exist_ok=True)
+    query = urllib.parse.urlencode({"list-type": 2, "prefix": prefix})
+    with urllib.request.urlopen(f"{LINZ}/?{query}", timeout=60) as reply:
+        listing = reply.read().decode()
+    if "<IsTruncated>true" in listing:
+        raise RuntimeError(f"More than one page of tiles under {prefix}: page the listing")
+    keys = re.findall(r"<Key>([^<]+\.tiff?)</Key>", listing)
+    for key in keys:
+        urllib.request.urlretrieve(f"{LINZ}/{key}", out / key.rsplit("/", 1)[-1])
+    log.info("%s: %d tiles", name, len(keys))
+    return out
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     target = Path(sys.argv[1] if len(sys.argv) > 1 else "data")
     target.mkdir(parents=True, exist_ok=True)
-    for city in sys.argv[2:] or CITIES:
-        download(target, city)
+    for name in sys.argv[2:] or [*CITIES, *DEMS]:
+        if name in DEMS:
+            download_dem(target, name)
+        else:
+            download(target, name)

@@ -90,3 +90,31 @@ def test_wellington_solve_reports_its_missing_inputs():
     inputs = issue.data["inputs"]
     assert inputs["with_elevation"] > 10_000 and inputs["with_demand"] == 0
     assert issue.cause   # error 110: the unfed pieces
+
+
+def test_wellington_dem_fills_every_elevation_and_agrees_with_the_records():
+    """LINZ's 1 m DEM (2025) against the levels Wellington records at fittings and hydrants."""
+    from dataclasses import replace
+
+    import numpy as np
+
+    from waterforge.dem import sample
+    from waterforge.inputs import read_network
+
+    tiles = DATA / "dem" / "wellington-city_2025"
+    if not tiles.exists():
+        pytest.skip(f"{tiles} not downloaded (download.py data wellington-dem)")
+    mapping = load_mapping(EXAMPLES / "wellington.yaml")
+    network = read_network(city("wellington"), mapping)
+    known = network.points[network.points.elevation.notna()]
+    diff = known.elevation.to_numpy() - sample(tiles, known.geometry.x, known.geometry.y,
+                                               network.crs)
+    # measured 30 Oct 2026: median -0.07 m, 95.4% within 0.5 m (same height datum)
+    assert abs(np.nanmedian(diff)) < 0.2 and np.mean(np.abs(diff) <= 0.5) > 0.9
+
+    mapping = replace(mapping, settings=replace(mapping.settings, dem=str(tiles)))
+    result = check_network(network, mapping, run_epanet=False)
+    c = result.model.changes
+    assert c["elevations_from_dem"] > 10_000 and "elevations_filled" not in c
+    assert c["junctions_with_elevation"] + c["elevations_from_dem"] == len(
+        result.model.junctions)

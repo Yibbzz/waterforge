@@ -19,7 +19,7 @@ First version, built from the brief (docs/brief.md) and the open-water-checks ev
 - The conversion to an EPANET model in documented steps on the engine's own copy (the
   source is never modified): side joins split, rings cut, valves and pumps as links (points
   or lines), sources joined, sizes filled, elevations and demands from point assets or a DEM
-  (`--dem`).
+  (`--dem`: one raster or a folder of tiles; only the cells under the junctions are read).
 - EPANET 2.3.5 (owa-epanet, pinned) as the referee at every check; disagreements reported,
   one known EPANET 2.3.5 gap documented (WE-05).
 - `check --proposed`: a change against the existing network, issues labelled new,
