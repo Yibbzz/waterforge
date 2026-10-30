@@ -154,6 +154,27 @@ def test_we09_negative_pressures(tmp_path):
     assert "below zero pressure" in issue.message or "fails" in issue.message
 
 
+def test_we09_unfed_pieces_are_left_out_and_the_rest_solves(tmp_path):
+    from tests.helpers import make_network, mapping
+    from waterforge.check import check_network
+
+    pipes = [*BASE_PIPES, (4, line((300, 0), (400, 0)), 100)]     # no source reaches it
+    junctions = [(1, point(100, 0), 10, 2.0), (2, point(200, 0), 12, 1.0),
+                 (3, point(100, -80), 11, 0.0), (4, point(0, 0), 9, 0.0),
+                 (5, point(300, 0), 10, 1.0), (6, point(400, 0), 10, 0.0)]
+    fittings = [*BASE_POINTS["fittings"], (4, point(300, 0), "end cap"),
+                (5, point(400, 0), "end cap")]
+    path = make_network(tmp_path, pipes, junctions=junctions, fittings=fittings,
+                        structures=[(1, point(-5, 0), "reservoir", None, 60)])
+    result = check_network(path, mapping(), solves=True)
+    [unfed] = rules(result, "WE-08")
+    [issue] = rules(result, "WE-09")
+    assert result.solved.ran and result.solved.pressures["junctions"] == 4
+    assert issue.data["left_out"] == {"junctions": 2, "pieces": 1, "pipes": 1}
+    assert "Run on the part sources reach: 4 of 6 junctions" in issue.message
+    assert issue.cause == [unfed.id]
+
+
 def test_pump_duty_point_becomes_a_one_point_curve(tmp_path):
     from tests.helpers import MAPPING, make_network
     from waterforge.check import check_network

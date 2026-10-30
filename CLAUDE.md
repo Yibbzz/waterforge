@@ -67,7 +67,7 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   (token-demand copy), `solve` (as recorded). `CODE_RULE` maps EPANET codes to rules.
 - `check.py` - `check_network`: read -> convert -> GIS rules -> WE rules -> referee ->
   `compare_with_epanet` (disagreements; `KNOWN_DIFFERENCES`) -> optional `solves_level`
-  (WE-09) -> `finalise`. Second referee run with sizes filled when only sizes stopped EPANET.
+  (WE-09, on `fed_part`: unfed pieces left out) -> `finalise`. Second referee run with sizes filled when only sizes stopped EPANET.
 - `issues.py` - `Issue` (rule, message, features, location, severity, cause, status, data);
   `id` = fingerprint (rule + sorted features + location rounded to the tolerance).
 - `report.py` - report JSON, issues GeoPackage (issue_points / issue_lines), element table.
@@ -118,6 +118,10 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   default 5 m, Warning (the DEM can be the wrong one). The model keeps the recorded level.
   Wellington: 126 flagged, 92 of them in 9 batches (largest 41 at +12.6 m; 9 hydrants at
   -78 m), 34 alone (one typo: 168,367 m).
+- 2026-10-30: the Solves level runs on the fed part only (`check.fed_part`): unfed pieces
+  (WE-08) are left out and reported in WE-09's `data.left_out`. Both cities now run (before:
+  error 110). Wellington's static pressures go below zero at 557 junctions (DEM on): 9 sources
+  have no levels (given 50 m absolute) and the 42 pump stations are structures, not pumps.
 - 2026-10-28: Wellington tanks: `twl_m` (top water level, m above datum, checked against the
   ground beside each tank) is the head; `elevation_m` is empty for tanks.
 

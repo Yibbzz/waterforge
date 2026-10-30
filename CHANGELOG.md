@@ -26,7 +26,8 @@ First version, built from the brief (docs/brief.md) and the open-water-checks ev
   one known EPANET 2.3.5 gap documented (WE-05).
 - `check --proposed`: a change against the existing network, issues labelled new,
   pre-existing or resolved; `--fail-on new|all|none`, `--fail-level`, saved baselines.
-- `check --solve`: the steady-state run (WE-09) with the inputs that were missing.
+- `check --solve`: the steady-state run (WE-09) with the inputs that were missing; pieces no
+  source reaches are left out of the run (and said), so a whole city still solves.
 - `waterforge export`: the .inp and a table from every model element to its feature.
 - `waterforge rules`, `waterforge info`.
 - Tests: every rule with a passing and a failing fixture, EPANET agreement tests, EPANET's

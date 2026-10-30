@@ -205,12 +205,17 @@ pipes and near misses: those need a person.
 **A steady-state run completes.** Source: EPANET hydraulic run. Runs with `check --solve`.
 
 The model is run once as it is: recorded junction elevations and demands, source heads, pump
-power (missing sizes filled, so EPANET gets that far). One network-wide issue (no location)
-when the run fails, when nothing flows (no demands), or when it finishes with warnings or
-negative pressures. The message lists the inputs that were missing (elevations, demands,
-source heads, pump power), and `data` holds the counts and the pressure range. A run that
-fails with error 110 lists the WE-08 issues as its `cause`. With complete inputs and a clean
-run there is no issue; the `done` event's `summary.solve` has the pressures.
+power (missing sizes filled, so EPANET gets that far). Pieces no source reaches (WE-08) are
+left out of this run, since EPANET can't solve a network with one (error 110); the rest of
+the network still gets its pressures.
+
+One network-wide issue (no location) when the run fails, when nothing flows (no demands),
+when it finishes with warnings or negative pressures, or when pieces were left out. The
+message lists the inputs that were missing (elevations, demands, source heads, pump power),
+and `data` holds the counts, the pressure range and what was left out (`left_out`: junctions,
+pieces, pipes); the WE-08 issues of the left-out pieces are its `cause`. With complete inputs,
+every piece fed and a clean run there is no issue; the `done` event's `summary.solve` has the
+pressures.
 
 ## GIS rules (WG)
 

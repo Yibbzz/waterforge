@@ -237,7 +237,10 @@ def _summary_text(result, summary, failing, args, outputs, issues) -> str:
     if result.solved is not None:
         sv = result.solved
         p = sv.pressures
+        left = next((i.data.get("left_out") for i in result.issues if i.rule == "WE-09"), None)
         lines.append("Steady state: " + ("runs" if sv.ran else "fails")
+                     + (f" on the part sources reach ({left['pieces']:,} unfed piece(s) left "
+                        f"out)" if left else "")
                      + (f", pressures {p['min_m']:g} to {p['max_m']:g} m"
                         f" ({p['negative']} junctions below zero)" if p else ""))
     for text in result.disagreements:

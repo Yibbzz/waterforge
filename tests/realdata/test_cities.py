@@ -89,7 +89,9 @@ def test_wellington_solve_reports_its_missing_inputs():
     [issue] = [i for i in result.issues if i.rule == "WE-09"]
     inputs = issue.data["inputs"]
     assert inputs["with_elevation"] > 10_000 and inputs["with_demand"] == 0
-    assert issue.cause   # error 110: the unfed pieces
+    # the unfed pieces are left out, so the rest runs (it stopped on error 110 before)
+    assert result.solved.ran and issue.data["left_out"]["pieces"] > 100
+    assert issue.cause and set(issue.cause) <= {i.id for i in result.issues if i.rule == "WE-08"}
 
 
 def test_wellington_dem_fills_every_elevation_and_agrees_with_the_records():

@@ -109,7 +109,7 @@ def check_read(network: Network, mapping: Mapping, checks="all", fill_sizes=None
         step(4, "Solving (steady state)")
         solved, solve_issue = solves_level(model, mapping)
         if solve_issue is not None:
-            if not solved.ran and "110" in solved.errors:   # caused by the unfed pieces
+            if solve_issue.data.get("left_out") or "110" in solved.errors:  # unfed pieces
                 for issue in analysis:
                     issue.id = issue.id or issue.fingerprint(tol)
                 solve_issue.cause = [i.id for i in analysis if i.rule == "WE-08"]
@@ -121,13 +121,38 @@ def check_read(network: Network, mapping: Mapping, checks="all", fill_sizes=None
     return CheckResult(network, model, issues, result_epanet, disagreements, solved)
 
 
+def fed_part(model: Model) -> tuple[Model, dict]:
+    """The model without the pieces no source reaches (WE-08), and what was left out.
+
+    EPANET can't solve a network with an unfed piece (error 110), so the Solves level runs on
+    this copy: the rest of the network still gets its pressures.
+    """
+    label, fed = epanet.pieces(model)
+    keep = label[label.isin(fed)].index
+    junctions = model.junctions[model.junctions.name.isin(keep)]
+    if len(junctions) == len(model.junctions):
+        return model, {}
+    links = model.links[model.links.start.isin(keep) & model.links.end.isin(keep)]
+    gone = label[~label.isin(fed)]
+    left_out = {"junctions": len(model.junctions) - len(junctions),
+                "pieces": int(gone.nunique()),
+                "pipes": int(((model.links.kind == "pipe") & ~model.links.name.isin(
+                    links.name)).sum())}
+    return replace(model, junctions=junctions, links=links), left_out
+
+
 def solves_level(model: Model, mapping: Mapping):
-    """WE-09: run the model with its recorded inputs; say which inputs were missing."""
+    """WE-09: run the model with its recorded inputs; say which inputs were missing.
+
+    Pieces no source reaches are left out of the run (they are WE-08 already), so the rest
+    still solves; the issue says how much was left out.
+    """
     import shapely
 
     filled = replace(model, links=model.links.assign(diameter_mm=model.links.diameter_mm.where(
         (model.links.diameter_mm > 0) | (model.links.kind == "pump"),
         mapping.steps.default_size_mm)))
+    filled, left_out = fed_part(filled)
     result = solve(filled)
     j = model.junctions
     c = model.changes
@@ -150,17 +175,23 @@ def solves_level(model: Model, mapping: Mapping):
         missing.append(f"{inputs['pumps_default_power']} pump(s) with no power "
                        f"(given {mapping.settings.pump_power_kw:g} kW)")
     note = f" Inputs: {'; '.join(missing)}." if missing else ""
+    if left_out:
+        note = (f" Run on the part sources reach: {len(filled.junctions):,} of {len(j):,} "
+                f"junctions ({left_out['pieces']:,} unfed piece(s) left out, WE-08).") + note
     if not result.ran:
         text = f"The steady-state run fails: {result.messages[0] if result.messages else '?'}."
     elif inputs["with_demand"] == 0:
-        text = "The run completes, but with no demands nothing flows: not a real solve."
+        text = ("The run completes, but with no demands nothing flows: the pressures are "
+                "static (source head minus ground), not a real solve.")
     elif result.warnings or result.pressures.get("negative"):
         text = (f"The run completes with warnings: {result.warnings[0] if result.warnings else ''}"
                 f" ({result.pressures.get('negative', 0)} junctions below zero pressure).")
+    elif left_out:
+        text = "The run completes for the part sources reach."
     else:
         return result, None
     data = {"inputs": inputs, "errors": result.errors, "pressures": result.pressures,
-            "warnings": result.warnings[:10]}
+            "warnings": result.warnings[:10], "left_out": left_out}
     return result, Issue("WE-09", text + note, [], shapely.Point(), data=data)
 
 
