@@ -12,14 +12,16 @@ First version, built from the brief (docs/brief.md) and the open-water-checks ev
 
 ### Added
 - `waterforge check`: a drinking water network's GIS layers, read through a YAML field
-  mapping from GeoPackage, Shapefile, File Geodatabase or PostGIS, checked against 25 rules:
-  9 from EPANET's requirements (WE) and 16 GIS rules (WG). Issues name their rule, features,
+  mapping from GeoPackage, Shapefile, File Geodatabase or PostGIS, checked against 26 rules:
+  9 from EPANET's requirements (WE) and 17 GIS rules (WG). Issues name their rule, features,
   location and the GIS issues that cause them. JSON events, a report file and an issues
   GeoPackage for QGIS.
 - The conversion to an EPANET model in documented steps on the engine's own copy (the
   source is never modified): side joins split, rings cut, valves and pumps as links (points
   or lines), sources joined, sizes filled, elevations and demands from point assets or a DEM
   (`--dem`: one raster or a folder of tiles; only the cells under the junctions are read).
+- WG-17 (with a DEM): recorded elevations more than `dem_tolerance` (5 m) from the terrain,
+  grouped into batches that are off by the same amount.
 - EPANET 2.3.5 (owa-epanet, pinned) as the referee at every check; disagreements reported,
   one known EPANET 2.3.5 gap documented (WE-05).
 - `check --proposed`: a change against the existing network, issues labelled new,

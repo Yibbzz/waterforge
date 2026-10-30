@@ -140,7 +140,8 @@ settings:
   pump_power_kw: 10.0      # kW: a pump with no power mapped
   remove_field: remove     # in a proposal: the field marking features to remove
   dem: ""                  # a terrain raster, or a folder of tiles, for junctions with no
-                           # elevation (or --dem)
+                           # elevation (or --dem); also turns on WG-17
+  dem_tolerance: 5.0       # m: a recorded elevation further than this from the DEM (WG-17)
 
 steps:                     # the conversion steps (rules.md#from-gis-to-epanet-the-conversion-steps)
   split_side_joins: true

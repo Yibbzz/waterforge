@@ -19,7 +19,8 @@ WaterForge then:
 - checks a proposed change against the existing network and fails only on the problems the
   change introduces, never on old errors.
 
-> **Status: pre-alpha (0.1.0.dev0).** All 25 rules of the brief are implemented. Checking whole
+> **Status: pre-alpha (0.1.0.dev0).** All 25 rules of the brief are implemented, plus
+> WG-17 (recorded elevations against a terrain model). Checking whole
 > networks and proposals, exporting `.inp` and the steady-state run are tested on two cities'
 > open data (Townsville, Australia and Wellington, New Zealand) and on EPANET's example
 > networks. A water modeller's review is still to come. Flags and JSON shapes may still change
@@ -83,6 +84,7 @@ On Townsville's 30,553 mains and Wellington's 33,688 (each checked in about 15 s
 | ... with closed valves cutting the network (the default) | 122 | 265 |
 | Valves and tees on a pipe between its vertices (WG-03) | 145 | 236 |
 | Size changes with no fitting recorded (WG-11) | 239 | 326 |
+| Recorded levels > 5 m from LINZ's 1 m DEM (WG-17), in batches | - | 126, 92 in 9 batches |
 | EPANET 2.3.5 | loads the export | loads the export |
 
 The counts with closed valves left open match the hand-made evaluation in

@@ -114,6 +114,10 @@ def test_wellington_dem_fills_every_elevation_and_agrees_with_the_records():
 
     mapping = replace(mapping, settings=replace(mapping.settings, dem=str(tiles)))
     result = check_network(network, mapping, run_epanet=False)
+    flagged = [i for i in result.issues if i.rule == "WG-17"]
+    batched = [i for i in flagged if i.data["batch_size"] > 1]
+    # measured 30 Oct 2026: 126 levels > 5 m off, 92 of them in 9 batches
+    assert 50 < len(flagged) < 300 and len(batched) > len(flagged) / 2
     c = result.model.changes
     assert c["elevations_from_dem"] > 10_000 and "elevations_filled" not in c
     assert c["junctions_with_elevation"] + c["elevations_from_dem"] == len(

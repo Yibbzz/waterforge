@@ -58,7 +58,8 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   docs/rules.md must match (tests/unit/test_catalogue.py).
 - `rules/gis.py` - WG rules needing the joined network: lonely ends (WG-01/02), crossings
   (04), duplicates (05), fittings (07), points on pipes (03), size changes (11), node ids
-  (14/15).
+  (14/15), recorded levels vs the DEM (17, only with `dem`; batches = levels within 100 m off
+  by the same amount within 1 m).
 - `rules/epanet.py` - WE rules on the model; `valve_rules` (WE-04/05, exactly EPANET's
   valvecheck); `unfed` (WE-08) with cause links to GIS issues.
 - `oracle.py` - `write_inp` (junctions, reservoirs, tanks, pipes, valves, pumps),
@@ -113,6 +114,10 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   Wellington, LINZ's Wellington City 1 m DEM (2025) fills all 17,045 junctions with no level;
   where levels are recorded it agrees (median 7 cm, 95% within 0.5 m), while the nearest-known
   fill it replaces is > 10 m off at 2,129 junctions.
+- 2026-10-30: WG-17 (not in the brief, asked for by the user): recorded elevation vs DEM,
+  default 5 m, Warning (the DEM can be the wrong one). The model keeps the recorded level.
+  Wellington: 126 flagged, 92 of them in 9 batches (largest 41 at +12.6 m; 9 hydrants at
+  -78 m), 34 alone (one typo: 168,367 m).
 - 2026-10-28: Wellington tanks: `twl_m` (top water level, m above datum, checked against the
   ground beside each tank) is the head; `elevation_m` is empty for tanks.
 
@@ -154,8 +159,8 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 1. A modeller reviews the rules on real data (the modeller summary doc in open-water-checks);
    fold their answers in (defaults: 1 mm, 1 m, 25 m; split side joins; closed valves).
 2. Demands from customer meters or billing; multi-point pump curves and patterns (the Solves
-   level is a single steady state). `--dem` done on Wellington (2026-10-30); possible next: a
-   rule for recorded levels far from the DEM (~0.1% of Wellington's are > 10 m off).
+   level is a single steady state). `--dem` and WG-17 done on Wellington (2026-10-30); WG-17's
+   batches could go to Wellington Water to confirm the cause.
 3. Release v0.1 once the brief's "Done for water" list is ticked (left: the modeller review
    and the tag: bump `version`, move CHANGELOG's Unreleased to [0.1.0], push `v0.1.0`;
    `.github/workflows/release.yml` builds and publishes the GitHub release).

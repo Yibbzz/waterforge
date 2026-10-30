@@ -96,6 +96,9 @@ _RULES = [
          "GIS rule: a recorded node that is missing, removed or blank", "Map", "warning"),
     Rule("WG-16", "gis", "A tank or reservoir is joined to the network",
          "GIS rule; cause of WE-08: sources are often drawn beside the pipes", "Map", "error"),
+    Rule("WG-17", "gis", "A recorded elevation is close to the terrain (DEM)",
+         "GIS rule: a level far from the ground is a typo, a wrong height datum or old survey; "
+         "pressures in the model come from these levels", "Map", "warning"),
 ]
 
 RULES: dict[str, Rule] = {rule.id: rule for rule in _RULES}

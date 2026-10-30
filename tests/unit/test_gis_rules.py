@@ -343,3 +343,61 @@ def test_wg11_size_change_without_a_fitting(tmp_path):
     assert sorted(issue.data["diameters_mm"]) == [100.0, 150.0]
     points["fittings"].append((4, point(200, 0), "reducer"))
     assert rules(run(tmp_path, pipes, **points), "WG-11") == []
+
+
+# WG-17 recorded elevations against a DEM ----------------------------------------
+
+def flat_dem(folder, value=10.0):
+    """A 400 m square DEM around the base network, flat at `value` m."""
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from tests.helpers import X, Y
+
+    path = folder / "dem.tif"
+    with rasterio.open(path, "w", driver="GTiff", height=40, width=40, count=1,
+                       dtype="float32", crs="EPSG:2193", nodata=-9999,
+                       transform=from_origin(X - 50, Y + 200, 10, 10)) as out:
+        out.write(np.full((40, 40), value, dtype="float32"), 1)
+    return str(path)
+
+
+def levels(*elevations):
+    """Junction points with these elevations at B (100, 0), D (100, -80) and C (200, 0)."""
+    where = [point(100, 0), point(100, -80), point(200, 0)]
+    return [(k + 1, w, e, 0) for k, (w, e) in enumerate(zip(where, elevations))]
+
+
+def test_wg17_levels_close_to_the_dem_pass(tmp_path):
+    result = run(tmp_path, BASE_PIPES, settings={"dem": flat_dem(tmp_path)},
+                 junctions=levels(10.4, 9.0, 14.9), **BASE_POINTS)
+    assert rules(result, "WG-17") == []
+
+
+def test_wg17_one_level_far_off(tmp_path):
+    result = run(tmp_path, BASE_PIPES, settings={"dem": flat_dem(tmp_path)},
+                 junctions=levels(10.0, 10.0, 1010.0), **BASE_POINTS)
+    [issue] = rules(result, "WG-17")
+    assert issue.severity == "warning" and issue.features == [{"layer": "junctions", "id": 3}]
+    assert "1000.0 m above the terrain (10.0 m in the DEM)" in issue.message
+    assert "nearby" not in issue.message and issue.data["batch_size"] == 1
+    assert (issue.data["recorded_m"], issue.data["difference_m"]) == (1010.0, 1000.0)
+
+
+def test_wg17_a_batch_off_by_the_same_amount(tmp_path):
+    # B and D (80 m apart) are both about 8 m high; C is 50 m low: not part of the batch
+    result = run(tmp_path, BASE_PIPES, settings={"dem": flat_dem(tmp_path)},
+                 junctions=levels(18.0, 18.4, -40.0), **BASE_POINTS)
+    found = {i.features[0]["id"]: i for i in rules(result, "WG-17")}
+    assert sorted(found) == [1, 2, 3]
+    assert found[1].data["batch_size"] == found[2].data["batch_size"] == 2
+    assert "one of 2 levels nearby off by about +8.2 m" in found[1].message
+    assert found[3].data["batch_size"] == 1 and "below the terrain" in found[3].message
+
+
+def test_wg17_tolerance_is_a_setting(tmp_path):
+    settings = {"dem": flat_dem(tmp_path), "dem_tolerance": 20.0}
+    result = run(tmp_path, BASE_PIPES, settings=settings, junctions=levels(18.0, 18.4, -40.0),
+                 **BASE_POINTS)
+    assert [i.features[0]["id"] for i in rules(result, "WG-17")] == [3]

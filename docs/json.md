@@ -34,7 +34,7 @@ One per rule violation.
 | Key | Type | |
 | --- | --- | --- |
 | id | str | 12 hex characters: a fingerprint of the rule, the features and the location; the same problem has the same id in two runs |
-| rule | str | `WE-01` ... `WG-16` ([rules.md](rules.md)) |
+| rule | str | `WE-01` ... `WG-17` ([rules.md](rules.md)) |
 | family | str | `analysis` or `gis` |
 | severity | str | `error`, `warning` or `info` |
 | message | str | plain language |

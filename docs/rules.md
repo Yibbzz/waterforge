@@ -55,6 +55,7 @@ resolved; only new ones fail (`--fail-on new`, the default). See
 | [WG-14](#wg-14) | Recorded node IDs agree with geometry | GIS rule | Map | Warning |
 | [WG-15](#wg-15) | An in-use pipe names an in-use node at each end | GIS rule | Map | Warning |
 | [WG-16](#wg-16) | A tank or reservoir is joined to the network | GIS rule; cause of WE-08 | Map | Error |
+| [WG-17](#wg-17) | A recorded elevation is close to the terrain (DEM) | GIS rule | Map | Warning |
 
 ## From GIS to EPANET: the conversion steps
 
@@ -360,6 +361,26 @@ among the in-use point assets in the mapping (otherwise removed, abandoned or mi
 A source within `source_reach` (25 m) of a pipe end is joined to the nearest one for the model
 (**Info**, with the distance). One farther away is left out (**Error**). It is a cause of WE-08
 and WE-06.
+
+### WG-17
+
+**A recorded elevation is close to the terrain (DEM).** Runs only with a DEM (`--dem` or
+`settings.dem`). Every point asset with a recorded elevation (fittings, hydrants, junctions,
+structures) is compared with the DEM at that place; one more than `dem_tolerance` (5 m) above
+or below it is a **Warning**, with the recorded level, the DEM's and the difference.
+
+Levels within 100 m of each other that are off by the same amount (within 1 m) are one
+**batch**: each issue says how many levels are in it and their typical difference. A batch
+usually has one cause: a different height datum, a survey of the design levels, or ground cut
+or filled since. A single level far off is more likely a typo.
+
+It is a Warning, not an Error, because the DEM can be the one that is wrong (a new
+subdivision after the LiDAR, a bridge or a tunnel). The model keeps the recorded level.
+
+Measured on Wellington (30 October 2026) with LINZ's Wellington City 1 m DEM (2025): of 71,304
+recorded levels, 95% are within 0.5 m of the DEM; 126 are more than 5 m off, most of them in
+batches (six hydrants with consecutive ids all 78 m below the ground; a run of new fittings
+about 13 m above it), and one fitting recorded at 168,367 m.
 
 
 ## Proposed changes

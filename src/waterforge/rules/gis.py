@@ -1,6 +1,7 @@
 """
 GIS rules (WG) that look at the network as joined: lonely ends, near misses,
-crossings, duplicates, fittings and recorded node ids.
+crossings, duplicates, fittings, recorded node ids and recorded elevations
+against a terrain model (WG-17, only with a DEM).
 
 The rules found while reading (WG-06, WG-08, WG-09, in inputs.py) and while
 converting (WG-06, WG-10, WG-12, WG-13, WG-16, in convert.py) are reported
@@ -32,6 +33,8 @@ def check(network: Network, model: Model, mapping: Mapping) -> list[Issue]:
     issues += size_changes(network, model, mapping)
     if mapping.has_node_ids:
         issues += node_id_checks(network, mapping)
+    if mapping.settings.dem:
+        issues += dem_levels(network, mapping)
     return issues
 
 
@@ -363,4 +366,55 @@ def size_changes(network: Network, model: Model, mapping: Mapping) -> list[Issue
                             "with no fitting or valve recorded there",
                             [feature(a.layer, a.fid), feature(b.layer, b.fid)], point,
                             data={"diameters_mm": [float(a.d), float(b.d)]}))
+    return issues
+
+
+BATCH_REACH = 100.0     # m: flagged levels this close ...
+BATCH_AGREE = 1.0       # m: ... whose differences from the DEM agree this well are one batch
+
+
+def dem_levels(network: Network, mapping: Mapping) -> list[Issue]:
+    """WG-17: a recorded elevation (at a fitting, hydrant, junction, ...) far from the DEM.
+
+    Levels near each other that are off by about the same amount are reported as a batch
+    (each issue says how many): one cause, such as a height datum or a survey, fixes them all.
+    """
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    from ..dem import sample
+
+    s = mapping.settings
+    pts = network.points[network.points.elevation.notna()].reset_index(drop=True)
+    if pts.empty:
+        return []
+    ground = sample(s.dem, pts.geometry.x, pts.geometry.y, network.crs)
+    diff = pts.elevation.to_numpy(dtype=float) - ground
+    off = np.flatnonzero(np.abs(np.nan_to_num(diff)) > s.dem_tolerance)
+    if len(off) == 0:
+        return []
+    geoms, d = pts.geometry.values[off], diff[off]
+    a, b = shapely.STRtree(geoms).query(geoms, predicate="dwithin", distance=BATCH_REACH)
+    keep = (a < b) & (np.abs(d[a] - d[b]) <= BATCH_AGREE)
+    graph = coo_matrix((np.ones(keep.sum()), (a[keep], b[keep])), shape=(len(off), len(off)))
+    _, batch = connected_components(graph, directed=False)
+    sizes = np.bincount(batch)
+    typical = pd.Series(d).groupby(batch).median()
+    issues = []
+    for k, i in enumerate(off):
+        row = pts.iloc[i]
+        name = (f"{row.asset_type.capitalize()} {row.fid}" if row.asset == "fitting"
+                else f"{row.asset.capitalize()} {row.fid}")
+        way = "above" if d[k] > 0 else "below"
+        text = (f"{name}'s recorded elevation {row.elevation:.1f} m is {abs(d[k]):.1f} m {way} "
+                f"the terrain ({ground[i]:.1f} m in the DEM)")
+        n = int(sizes[batch[k]])
+        if n > 1:
+            text += (f"; one of {n} levels nearby off by about {typical[batch[k]]:+.1f} m: "
+                     "check them together (height datum, survey, or earthworks since)")
+        issues.append(Issue("WG-17", text, [feature(row.layer, row.fid)], row.geometry,
+                            data={"recorded_m": round(float(row.elevation), 3),
+                                  "dem_m": round(float(ground[i]), 3),
+                                  "difference_m": round(float(d[k]), 3), "batch_size": n,
+                                  "batch_difference_m": round(float(typical[batch[k]]), 3)}))
     return issues

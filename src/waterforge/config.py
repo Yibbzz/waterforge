@@ -115,6 +115,7 @@ class Settings:
     pump_power_kw: float = 10.0     # kW: a pump with no power recorded (no curves yet)
     remove_field: str = "remove"    # in a proposal: features to remove (yes / true / 1)
     dem: str = ""                   # a terrain raster for junctions with no elevation
+    dem_tolerance: float = 5.0      # m: a recorded elevation further from the DEM is WG-17
 
 
 @dataclass(frozen=True)
@@ -197,7 +198,8 @@ def parse_mapping(data: dict) -> Mapping:
     if settings.diameter_units not in DIAMETER_UNITS:
         problems.append(f"settings.diameter_units: '{settings.diameter_units}' is not one of "
                         f"{', '.join(DIAMETER_UNITS)}")
-    for name in ("tolerance", "near_miss", "at_asset", "structure_reach", "source_reach"):
+    for name in ("tolerance", "near_miss", "at_asset", "structure_reach", "source_reach",
+                 "dem_tolerance"):
         if not getattr(settings, name) > 0:
             problems.append(f"settings.{name} must be greater than 0")
     if settings.near_miss <= settings.tolerance:
