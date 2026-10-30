@@ -88,7 +88,9 @@ def test_wellington_solve_reports_its_missing_inputs():
     result = check_network(city("wellington"), mapping, solves=True)
     [issue] = [i for i in result.issues if i.rule == "WE-09"]
     inputs = issue.data["inputs"]
-    assert inputs["with_elevation"] > 10_000 and inputs["with_demand"] == 0
+    # demands from the 60,467 service connections (customers), 404 L/s on 30 Oct 2026
+    assert inputs["with_elevation"] > 10_000 and inputs["with_demand"] > 10_000
+    assert 200 < inputs["total_demand_lps"] < 800
     # the unfed pieces are left out, so the rest runs (it stopped on error 110 before)
     assert result.solved.ran and issue.data["left_out"]["pieces"] > 100
     assert issue.cause and set(issue.cause) <= {i.id for i in result.issues if i.rule == "WE-08"}

@@ -117,7 +117,8 @@ def merge(network: Network, proposal: Network, mapping: Mapping):
     issues = [i for i in network.issues
               if not any((f["layer"], str(f["id"])) in touched_keys for f in i.features)]
     issues += proposal.issues
-    merged = Network(tables["pipes"], tables["points"], tables["links"], network.crs, issues)
+    merged = Network(tables["pipes"], tables["points"], tables["links"], network.crs, issues,
+                     network.customers)
     return merged, changes
 
 

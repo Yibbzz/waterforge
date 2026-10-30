@@ -16,6 +16,16 @@ pipes:
     start_node: start_node_id
     end_node: end_node_id
 
+customers:
+  # each service connection is one property: it adds settings.customer_demand (about
+  # 600 L/day, a rough household average) at the junction nearest its end on the main.
+  # Wellington's homes aren't metered, so there is no measured demand to map.
+  - layer: pipes
+    where: >-
+      TRIM(operational_status) = 'In Use'
+      AND pipe_type IN ('Service Connection', 'Household Connection')
+    id: asset_id
+
 fittings:
   - layer: fittings
     where: "TRIM(operational_status) = 'In Use'"

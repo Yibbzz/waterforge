@@ -72,7 +72,7 @@ copy: **the source data is never modified**. Each can be switched off in a rule 
 | Join ends | Pipe ends within the tolerance become one junction, by distance | `tolerance` (1 mm) | |
 | Sources | A tank or reservoir on a pipe end is that node; one beside the pipes joins the nearest pipe end within reach | `join_sources` (on), `source_reach` (25 m) | WG-16 |
 | Fill sizes | A pipe with no usable diameter gets a default | `fill_sizes` (off for `check`, on for `export`), `default_size_mm` (100) | WG-08, WG-09 |
-| Elevations and demands | Junctions take the elevation and demand of point assets within `at_asset`; one with no elevation is sampled from a DEM if given (`--dem`, needs `waterforge[dem]`), else takes the nearest known one | `dem`, `fill_elevations` (on) | counted in the summary |
+| Elevations and demands | Junctions take the elevation and demand of point assets within `at_asset`, plus the demand of every customer (`customers:` layers) nearest to them within `customer_reach` (50 m; a customer with no demand mapped gets `customer_demand`, 0.007 L/s); one with no elevation is sampled from a DEM if given (`--dem`, needs `waterforge[dem]`), else takes the nearest known one | `dem`, `fill_elevations` (on) | counted in the summary |
 
 Detection always runs: a step that is off only stops the change. With `split_side_joins: false`
 the side join is still reported as WG-12, and EPANET then sees the unfed piece (WE-08).
@@ -83,7 +83,8 @@ the network. `export` writes a table from every element to the feature it came f
 
 A tank with its elevation, initial, minimum and maximum levels and diameter mapped is an
 EPANET tank; otherwise it is a reservoir. A reservoir's head is its mapped `head`, else its
-elevation (plus the initial level if mapped), else `source_head` (50 m). Open isolation valves
+elevation (plus the initial level if mapped), else, with a DEM, the ground there plus
+`source_above_ground` (5 m), else `source_head` (50 m). Open isolation valves
 aren't in the model: EPANET doesn't need them. A pump with a duty point (`design_flow`,
 `design_head`) gets a one-point head curve, which EPANET extends into a full curve; one with
 only `power` runs at that power; one with neither gets `pump_power_kw` (10 kW). A control valve with no setting is modelled as an open

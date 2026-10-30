@@ -51,6 +51,15 @@ junctions:                   # optional points at pipe ends: elevations and dema
     elevation: ELEVATION
     demand: BASE_DEMAND      # L/s
 
+customers:                   # optional: where water is used (points, lines or areas)
+  - layer: meters            # meters, properties, buildings or service connections
+    id: METER_ID
+    demand: AVG_USE_LPS      # L/s; customers with none get settings.customer_demand
+                             # each adds its demand to the nearest junction (customer_reach);
+                             # a line (service connection) counts at its end nearest a pipe,
+                             # an area at a point inside it. A layer may be mapped twice, e.g.
+                             # the pipe layer as pipes and, filtered by `where`, as customers.
+
 pumps:                       # points, or lines drawn as links
   - layer: pumps
     id: PUMP_ID
@@ -136,6 +145,9 @@ settings:
   allowed_end_assets: [end cap, hydrant, structure]   # add valve to accept ends at valves
   required: [diameter]     # add material to require it (WG-08)
   source_head: 50.0        # m: head of a source with no head or levels mapped
+  source_above_ground: 5.0 # m: ... but with a DEM: the ground there plus this
+  customer_demand: 0.007   # L/s: a customer with no demand mapped (~600 L/day; set your own)
+  customer_reach: 50.0     # m: a customer further than this from every junction adds nothing
   blank_node_values: ["", unknown, none, "null"]       # recorded node ids meaning "none"
   pump_power_kw: 10.0      # kW: a pump with no power mapped
   remove_field: remove     # in a proposal: the field marking features to remove

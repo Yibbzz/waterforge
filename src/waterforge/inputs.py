@@ -51,6 +51,7 @@ POINT_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", *NUMBER_COLUMN
                  "geometry"]
 LINK_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", "setting", "power",
                 "design_flow", "design_head", "remove", "geometry"]
+CUSTOMER_COLUMNS = ["layer", "fid", "demand", "geometry"]
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 _YES = {"yes", "y", "true", "1", "t"}
 
@@ -62,6 +63,7 @@ class Network:
     links: gpd.GeoDataFrame      # valves and pumps drawn as lines
     crs: object
     issues: list[Issue] = field(default_factory=list)
+    customers: gpd.GeoDataFrame | None = None   # layer, fid, demand (L/s or NaN), geometry
 
     @property
     def sources(self) -> gpd.GeoDataFrame:
@@ -85,22 +87,31 @@ def read_network(source: str, mapping: Mapping, proposal: bool = False, crs=None
     if crs is None:
         crs = _target_crs([f for f, spec in zip(frames, specs) if spec.kind == "pipes"],
                           mapping)
-    pipes, points, links = [], [], []
+    pipes, points, links, customers = [], [], [], []
     for frame, spec in zip(frames, specs):
         frame = _to_crs(frame, crs, spec.layer)
         frame["remove"] = _remove(frame, present[spec.layer][0])
         if spec.kind == "pipes":
             pipes.append(_pipes(frame, spec, mapping, issues))
+        elif spec.kind == "customers":
+            frame = frame[~frame.geometry.is_empty]
+            customers.append(pd.DataFrame({
+                "layer": spec.layer, "fid": _ids(frame, spec),
+                "demand": _numbers(frame, spec, "demand", issues),
+                "geometry": frame.geometry.values}))
         else:
             p, k = _points(frame, spec, issues)
             points.append(p)
             links.append(k)
     network = Network(_frame(pipes, PIPE_COLUMNS, crs), _frame(points, POINT_COLUMNS, crs),
-                      _frame(links, LINK_COLUMNS, crs), crs, issues)
+                      _frame(links, LINK_COLUMNS, crs), crs, issues,
+                      _frame(customers, CUSTOMER_COLUMNS, crs))
     log.info("Read %s pipes (%.1f km), %s point assets%s%s", f"{len(network.pipes):,}",
              network.pipes.length.sum() / 1000, f"{len(network.points):,}",
              f", {len(network.links)} valves / pumps drawn as lines" if len(network.links)
              else "", " (proposed change)" if proposal else "")
+    if len(network.customers):
+        log.info("Read %s customers", f"{len(network.customers):,}")
     return network
 
 
@@ -151,6 +162,8 @@ def _check_source(source, mapping, proposal):
                 problems.append(f"{spec.kind}: layer '{spec.layer}' has no field '{name}'")
         remove = by_lower.get(mapping.settings.remove_field.lower(), [None])[0] \
             if proposal else None
+        # a layer may be mapped more than once (pipes and customers from one pipe layer)
+        names = {**present.get(spec.layer, (None, {}))[1], **names}
         present[spec.layer] = (remove, names)
     if problems:
         raise MappingError(problems, source="proposal" if proposal else "mapping")

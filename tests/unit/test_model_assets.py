@@ -175,6 +175,27 @@ def test_we09_unfed_pieces_are_left_out_and_the_rest_solves(tmp_path):
     assert issue.cause == [unfed.id]
 
 
+def test_source_with_no_head_takes_the_dem_ground(tmp_path):
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from tests.helpers import X, Y, make_network, mapping
+    from waterforge.check import check_network
+
+    dem = tmp_path / "dem.tif"
+    with rasterio.open(dem, "w", driver="GTiff", height=40, width=40, count=1,
+                       dtype="float32", crs="EPSG:2193", nodata=-9999,
+                       transform=from_origin(X - 50, Y + 200, 10, 10)) as out:
+        out.write(np.full((40, 40), 120.0, dtype="float32"), 1)
+    path = make_network(tmp_path, BASE_PIPES, **BASE_POINTS)   # the reservoir has no head
+    m = mapping(settings={"dem": str(dem), "source_above_ground": 4.0})
+    result = check_network(path, m, run_epanet=False)
+    assert result.model.reservoirs["head"].tolist() == [124.0]
+    assert result.model.changes["sources_head_from_ground"] == 1
+    assert result.model.changes.get("sources_default_head", 0) == 0
+
+
 def test_pump_duty_point_becomes_a_one_point_curve(tmp_path):
     from tests.helpers import MAPPING, make_network
     from waterforge.check import check_network
@@ -214,3 +235,37 @@ def test_dem_fills_missing_elevations(tmp_path):
     assert at[(100.0, 0.0)] == 99.0               # recorded: kept
     assert at[(200.0, 0.0)] == 25.0               # column (200 + 50) / 10 of the DEM
     assert at[(100.0, -80.0)] == 15.0
+
+
+# Customers: demands from meters, properties or service connections (step 8) ---------------
+
+def test_customers_add_their_demand_at_the_nearest_junction(tmp_path):
+    import geopandas as gpd
+    import shapely
+
+    from tests.helpers import CRS, MAPPING, X, Y, make_network
+    from waterforge.check import check_network
+    from waterforge.config import parse_mapping
+
+    path = make_network(tmp_path, BASE_PIPES, **BASE_POINTS)
+    rows = [  # (id, geometry, demand L/s or None)
+        ("m1", shapely.Point(X + 98, Y + 3), 0.5),                      # meter by B
+        ("s1", shapely.LineString([(X + 190, Y + 15), (X + 196, Y)]), None),  # service to C
+        ("s2", shapely.LineString([(X + 101, Y - 75), (X + 120, Y - 75)]), None),  # near D
+        ("far", shapely.Point(X + 400, Y + 300), 9.0),                  # nothing near
+    ]
+    gpd.GeoDataFrame({"cid": [r[0] for r in rows], "use": [r[2] for r in rows]},
+                     geometry=[r[1] for r in rows], crs=CRS).to_file(
+        path, layer="customers", driver="GPKG")
+    data = {**MAPPING, "customers": [{"layer": "customers", "id": "cid", "demand": "use"}],
+            "settings": {"customer_demand": 0.01, "customer_reach": 50}}
+    result = check_network(path, parse_mapping(data), run_epanet=False)
+    j = result.model.junctions
+    at = dict(zip(zip((j.x - X).round(), (j.y - Y).round()), j.demand))
+    assert at[(100.0, 0.0)] == 0.5
+    assert at[(200.0, 0.0)] == 0.01       # the service connection's end on the main
+    assert at[(100.0, -80.0)] == 0.01     # its end nearer the pipe (x = 101), not x = 120
+    c = result.model.changes
+    assert (c["customers"], c["customers_default_demand"], c["customers_not_near_a_junction"]) \
+        == (4, 2, 1)
+    assert c["customer_demand_lps"] == 0.52

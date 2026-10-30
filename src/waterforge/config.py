@@ -41,6 +41,9 @@ KIND_FIELDS = {
     "pumps": {"power", "design_flow", "design_head", "elevation"},
     "structures": {"type", "elevation", "head", "init_level", "min_level", "max_level",
                    "tank_diameter"},
+    # where water is used: meters, properties, buildings or service connections (any
+    # geometry); each adds its demand to the nearest junction (conversion step 8)
+    "customers": {"demand"},
 }
 # Fields holding a number (read as floats; a value that isn't a number is WG-09).
 NUMBER_FIELDS = ("elevation", "demand", "roughness", "setting", "power", "design_flow",
@@ -111,6 +114,9 @@ class Settings:
     allowed_end_assets: tuple[str, ...] = ("end cap", "hydrant", "structure")
     required: tuple[str, ...] = ("diameter",)
     source_head: float = 50.0       # m: head of a source with no head or levels recorded
+    source_above_ground: float = 5.0  # m: ... but with the ground from the DEM: ground + this
+    customer_demand: float = 0.007  # L/s: a customer with no demand mapped (~600 L/day)
+    customer_reach: float = 50.0    # m: a customer further from every junction adds nothing
     blank_node_values: tuple[str, ...] = ("", "unknown", "none", "null")
     pump_power_kw: float = 10.0     # kW: a pump with no power recorded (no curves yet)
     remove_field: str = "remove"    # in a proposal: features to remove (yes / true / 1)
@@ -199,7 +205,7 @@ def parse_mapping(data: dict) -> Mapping:
         problems.append(f"settings.diameter_units: '{settings.diameter_units}' is not one of "
                         f"{', '.join(DIAMETER_UNITS)}")
     for name in ("tolerance", "near_miss", "at_asset", "structure_reach", "source_reach",
-                 "dem_tolerance"):
+                 "dem_tolerance", "customer_reach"):
         if not getattr(settings, name) > 0:
             problems.append(f"settings.{name} must be greater than 0")
     if settings.near_miss <= settings.tolerance:

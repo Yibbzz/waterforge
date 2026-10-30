@@ -162,6 +162,7 @@ def solves_level(model: Model, mapping: Mapping):
               + int(c.get("elevations_from_dem", 0)),
               "with_demand": int((j.demand != 0).sum()), "total_demand_lps": round(demand, 3),
               "sources_default_head": int(c.get("sources_default_head", 0)),
+              "sources_head_from_ground": int(c.get("sources_head_from_ground", 0)),
               "pumps_default_power": int(c.get("pumps_default_power", 0))}
     missing = []
     if inputs["with_elevation"] < len(j):
@@ -171,6 +172,9 @@ def solves_level(model: Model, mapping: Mapping):
     if inputs["sources_default_head"]:
         missing.append(f"{inputs['sources_default_head']} source(s) with no head or levels "
                        f"(given {mapping.settings.source_head:g} m)")
+    if inputs["sources_head_from_ground"]:
+        missing.append(f"{inputs['sources_head_from_ground']} source(s) with no head or levels "
+                       f"(given the DEM's ground + {mapping.settings.source_above_ground:g} m)")
     if inputs["pumps_default_power"]:
         missing.append(f"{inputs['pumps_default_power']} pump(s) with no power "
                        f"(given {mapping.settings.pump_power_kw:g} kW)")

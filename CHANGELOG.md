@@ -20,6 +20,10 @@ First version, built from the brief (docs/brief.md) and the open-water-checks ev
   source is never modified): side joins split, rings cut, valves and pumps as links (points
   or lines), sources joined, sizes filled, elevations and demands from point assets or a DEM
   (`--dem`: one raster or a folder of tiles; only the cells under the junctions are read).
+- `customers:` layers (meters, properties, buildings or service connections; any geometry)
+  add demand at the nearest junction: mapped, else `customer_demand` (0.007 L/s). A layer
+  may be mapped twice (Wellington: service connections from the pipe layer).
+- A source with no head or levels takes the DEM's ground plus `source_above_ground` (5 m).
 - WG-17 (with a DEM): recorded elevations more than `dem_tolerance` (5 m) from the terrain,
   grouped into batches that are off by the same amount.
 - EPANET 2.3.5 (owa-epanet, pinned) as the referee at every check; disagreements reported,

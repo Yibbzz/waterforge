@@ -17,6 +17,7 @@ touched as issues, so the modeller sees every assumption:
   7. fill missing diameters with a default                WG-08  fill_sizes
   8. junction elevations and demands from point assets;   fill_elevations
      junctions with none take the nearest known elevation
+     (or the DEM's); customers add demand at the nearest junction
 
 Detection always runs; a step that is off only stops the change, so
 WG-12 is still reported (and EPANET then sees the unfed piece, WE-08).
@@ -264,7 +265,17 @@ def build_model(network: Network, mapping: Mapping, fill_sizes: bool = False):
     else:
         size = np.where(no_size, 0.0, size)
 
-    # 6. sources: names and joins
+    # 6. sources: names and joins. A source with no head, levels or elevation takes the
+    #    ground from the DEM (head = ground + source_above_ground)
+    sources = sources.assign(ground=np.nan)
+    if s.dem and len(sources):
+        guess = (sources["head"].isna() & sources.elevation.isna()).to_numpy()
+        if guess.any():
+            from .dem import sample
+
+            at = [_point(g) for g in sources.geometry.values[guess]]
+            sources.loc[guess, "ground"] = sample(s.dem, [p.x for p in at], [p.y for p in at],
+                                                  network.crs)
     name = {}
     source_rows, connectors = [], []
     holder = {}  # node label -> the source that is that node
@@ -397,6 +408,7 @@ def build_model(network: Network, mapping: Mapping, fill_sizes: bool = False):
 
     # 8. junction elevations and demands
     _junction_data(junctions, jpoints, pts, s, steps, changes, network.crs)
+    _customer_demands(junctions, jpoints, network, s, changes)
 
     model = Model(junctions, source_table, all_links, dict(changes))
     log.info("Model: %s junctions, %s pipes, %s valves / pumps, %s sources (%s joined by a "
@@ -438,6 +450,9 @@ def _source(name, row, s, changes) -> dict:
             head = row["head"]
         elif elevation == elevation:
             head = elevation + (init if init == init else 0.0)
+        elif row.get("ground", np.nan) == row.get("ground", np.nan):
+            head = row["ground"] + s.source_above_ground
+            changes["sources_head_from_ground"] += 1
         else:
             head = s.source_head
             changes["sources_default_head"] += 1
@@ -490,6 +505,39 @@ def _junction_data(junctions, jpoints, pts, s, steps, changes, crs=None):
         junctions.loc[~known, "elevation"] = junctions.elevation.to_numpy()[known][near]
         changes["elevations_filled"] = int((~known).sum())
     junctions["elevation"] = junctions.elevation.fillna(0.0)
+
+
+def _customer_demands(junctions, jpoints, network, s, changes):
+    """Each customer's demand (mapped, else customer_demand) at the nearest junction.
+
+    A customer drawn as a line (a service connection) is placed at its end nearest a pipe;
+    one drawn as an area (a building or property) at a point inside it.
+    """
+    customers = network.customers
+    if customers is None or len(customers) == 0 or len(junctions) == 0:
+        return
+    geoms = customers.geometry.values
+    where = shapely.point_on_surface(geoms)
+    lines = np.flatnonzero(np.isin(shapely.get_type_id(geoms), (1, 5)))  # (Multi)LineString
+    if len(lines) and len(network.pipes):
+        xy, which = shapely.get_coordinates(geoms[lines], return_index=True)
+        starts = np.searchsorted(which, np.arange(len(lines)))
+        ends = np.searchsorted(which, np.arange(len(lines)), side="right") - 1
+        first, last = shapely.points(xy[starts]), shapely.points(xy[ends])
+        pipes = network.pipes.geometry.values
+        nearer = nearest_distance(first, pipes) <= nearest_distance(last, pipes)
+        where[lines] = np.where(nearer, first, last)
+    demand = customers.demand.to_numpy(dtype=float)
+    mapped = ~np.isnan(demand)
+    demand = np.where(mapped, demand, s.customer_demand)
+    idx, _ = shapely.STRtree(jpoints).query_nearest(where, max_distance=s.customer_reach,
+                                                    return_distance=True, all_matches=False)
+    sums = pd.Series(demand[idx[0]]).groupby(idx[1]).sum()
+    junctions.loc[junctions.index[sums.index], "demand"] += sums.to_numpy()
+    changes["customers"] = len(customers)
+    changes["customers_default_demand"] = int((~mapped).sum())
+    changes["customers_not_near_a_junction"] = len(customers) - len(idx[0])
+    changes["customer_demand_lps"] = round(float(demand[idx[0]].sum()), 3)
 
 
 def _merge_cuts(cuts, tol):

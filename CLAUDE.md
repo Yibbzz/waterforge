@@ -121,7 +121,17 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 - 2026-10-30: the Solves level runs on the fed part only (`check.fed_part`): unfed pieces
   (WE-08) are left out and reported in WE-09's `data.left_out`. Both cities now run (before:
   error 110). Wellington's static pressures go below zero at 557 junctions (DEM on): 9 sources
-  have no levels (given 50 m absolute) and the 42 pump stations are structures, not pumps.
+  have no levels (given 50 m absolute) and the 36 in-use pump stations are structures, not pumps.
+- 2026-10-30: `customers:` layer kind for demands (`Network.customers`, allocated in
+  `convert._customer_demands` to the nearest junction within `customer_reach` 50 m; lines at
+  their end nearest a pipe). Default `customer_demand` 0.007 L/s (~600 L/day, a rough
+  household figure, not measured). Wellington maps its 60,467 service connections: 404 L/s;
+  the solve runs with flow, 593 junctions below zero (pump zones: no pumps in the open data).
+- 2026-10-30: a source with no head / levels / elevation takes DEM ground + 5 m
+  (`source_above_ground`); Wellington's 9 such sources: min pressure -244 -> -73 m.
+- 2026-10-30: Wellington's open data has no pump duty data: pump_stations (36 in use) have
+  empty duty_head_m / duty_flow_ls / power_kw; layer 10 "Potable Water Pump" has 11 pumps,
+  none in use. Layer 11 "Potable Water Meter" (4,895, mostly commercial) has no readings.
 - 2026-10-28: Wellington tanks: `twl_m` (top water level, m above datum, checked against the
   ground beside each tank) is the head; `elevation_m` is empty for tanks.
 
@@ -156,6 +166,8 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 - Fittings beside a junction (a few cm) cap branches not in the mapped pipes: WG-07 matches
   fittings within the tolerance only; WG-01 lets an end cap explain only its nearest pipe end.
 - Test GeoPackage writes are slow unless `OGR_SQLITE_SYNCHRONOUS=OFF` (tests/conftest.py).
+- A layer can be mapped under two kinds; `inputs._check_source` merges their field names per
+  layer.
 - Townsville reuses `ASSET_NUMBER` 0 for many mains: report per original row, not per id.
 
 ## Next steps (in order)
