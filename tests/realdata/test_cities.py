@@ -86,11 +86,15 @@ def test_an_empty_proposal_adds_nothing(name, tmp_path):
 def test_wellington_solve_reports_its_missing_inputs():
     mapping = load_mapping(EXAMPLES / "wellington.yaml")
     result = check_network(city("wellington"), mapping, solves=True)
-    [issue] = [i for i in result.issues if i.rule == "WE-09"]
+    [issue] = [i for i in result.issues if i.rule == "WE-09" and "inputs" in i.data]
     inputs = issue.data["inputs"]
     # demands from the 60,467 service connections (customers), 404 L/s on 30 Oct 2026
     assert inputs["with_elevation"] > 10_000 and inputs["with_demand"] > 10_000
     assert 200 < inputs["total_demand_lps"] < 800
+    # areas below zero pressure, most next to a pump station (no pumps in the open data)
+    areas = [i for i in result.issues if i.rule == "WE-09" and "junctions" in i.data]
+    near = [a for a in areas if "pump_station" in a.data]
+    assert areas and len(near) > len(areas) / 2
     # the unfed pieces are left out, so the rest runs (it stopped on error 110 before)
     assert result.solved.ran and issue.data["left_out"]["pieces"] > 100
     assert issue.cause and set(issue.cause) <= {i.id for i in result.issues if i.rule == "WE-08"}

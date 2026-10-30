@@ -54,6 +54,7 @@ class EpanetResult:
     connectivity: "EpanetResult | None" = None
     warnings: list = field(default_factory=list)   # the report's WARNING lines
     pressures: dict = field(default_factory=dict)  # Solves level: min / max / negative count
+    junction_pressures: dict = field(default_factory=dict, repr=False)  # name -> m (Solves)
 
     @property
     def rules(self) -> set:
@@ -154,7 +155,7 @@ def run_epanet(inp, pressures: bool = False) -> EpanetResult:
                     en.solveH(project)
                 result.ran = True
                 if pressures:
-                    result.pressures = _pressures(en, project)
+                    result.pressures, result.junction_pressures = _pressures(en, project)
             except Exception:  # noqa: BLE001 - the report says what went wrong
                 pass
         finally:
@@ -186,17 +187,20 @@ def run_epanet(inp, pressures: bool = False) -> EpanetResult:
     return result
 
 
-def _pressures(en, project) -> dict:
-    """Junction pressures after a solve, from EPANET (after solveH the final state is kept)."""
-    values = []
+def _pressures(en, project) -> tuple[dict, dict]:
+    """Junction pressures after a solve, from EPANET (after solveH the final state is kept):
+    (min / max / negative count, {junction name: pressure})."""
+    names, values = [], []
     for i in range(1, en.getcount(project, en.NODECOUNT) + 1):
         if en.getnodetype(project, i) == en.JUNCTION:
+            names.append(en.getnodeid(project, i))
             values.append(en.getnodevalue(project, i, en.PRESSURE))
     if not values:
-        return {}
+        return {}, {}
     values = np.asarray(values)
-    return {"junctions": len(values), "min_m": round(float(values.min()), 2),
-            "max_m": round(float(values.max()), 2), "negative": int((values < 0).sum())}
+    return ({"junctions": len(values), "min_m": round(float(values.min()), 2),
+             "max_m": round(float(values.max()), 2), "negative": int((values < 0).sum())},
+            dict(zip(names, values.tolist())))
 
 
 def solve(model: Model, title: str = "WaterForge") -> EpanetResult:

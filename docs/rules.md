@@ -218,6 +218,16 @@ pieces, pipes); the WE-08 issues of the left-out pieces are its `cause`. With co
 every piece fed and a clean run there is no issue; the `done` event's `summary.solve` has the
 pressures.
 
+Each **area below zero pressure** (neighbouring junctions joined by open links, all with
+negative pressure) is also its own WE-09 issue, located at its lowest-pressure junction, with
+its pipes as `features` and `data`: `junctions`, `min_pressure_m`, `max_ground_m`. When a pump
+station (a structure typed `pump station`) is within 1 km, the issue names the nearest one
+(`pump_station`, `pump_station_distance_m`): the area is probably pumped, and its pumps aren't
+in the model. With none near, the ground is higher than the sources that feed it, and a source
+head may be wrong. On Wellington (30 October 2026, LINZ DEM, service connections as customers):
+593 junctions in 58 areas; 52 areas (570 junctions) within 1 km of a pump station, five
+stations accounting for 496 junctions. Wellington's open data has no duty points for its pumps.
+
 ## GIS rules (WG)
 
 ### WG-01

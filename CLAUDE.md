@@ -127,6 +127,10 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   their end nearest a pipe). Default `customer_demand` 0.007 L/s (~600 L/day, a rough
   household figure, not measured). Wellington maps its 60,467 service connections: 404 L/s;
   the solve runs with flow, 593 junctions below zero (pump zones: no pumps in the open data).
+- 2026-10-30: WE-09 low-pressure areas (`check.low_pressure_areas`): negative junctions grouped
+  by open links, one issue each, nearest pump station within 1 km named. Wellington: 58 areas,
+  52 near a station; 5 stations (PS041, 099, 096, 122, 104) account for 496 of 593 junctions.
+  The network-wide WE-09 issue stays (no location; `data.junctions` absent there).
 - 2026-10-30: a source with no head / levels / elevation takes DEM ground + 5 m
   (`source_above_ground`); Wellington's 9 such sources: min pressure -244 -> -73 m.
 - 2026-10-30: Wellington's open data has no pump duty data: pump_stations (36 in use) have
@@ -174,8 +178,10 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 
 1. A modeller reviews the rules on real data (the modeller summary doc in open-water-checks);
    fold their answers in (defaults: 1 mm, 1 m, 25 m; split side joins; closed valves).
-2. Demands from customer meters or billing; multi-point pump curves and patterns (the Solves
-   level is a single steady state). `--dem` and WG-17 done on Wellington (2026-10-30); WG-17's
+2. Pump duty points for Wellington's stations (ask Wellington Water; the WE-09 areas name the
+   stations that matter most); multi-point pump curves and patterns (the Solves level is a
+   single steady state). Demands are from customers layers (done 2026-10-30; real usage
+   figures still wanted). `--dem` and WG-17 done on Wellington (2026-10-30); WG-17's
    batches could go to Wellington Water to confirm the cause.
 3. Release v0.1 once the brief's "Done for water" list is ticked (left: the modeller review
    and the tag: bump `version`, move CHANGELOG's Unreleased to [0.1.0], push `v0.1.0`;

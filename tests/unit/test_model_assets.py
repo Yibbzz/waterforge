@@ -150,8 +150,11 @@ def test_we09_a_complete_network_solves(tmp_path):
 
 def test_we09_negative_pressures(tmp_path):
     junctions = [(1, point(100, 0), 80, 2.0), (2, point(200, 0), 80, 1.0)]  # above the source
-    [issue] = rules(solve_run(tmp_path, junctions), "WE-09")
-    assert "below zero pressure" in issue.message or "fails" in issue.message
+    found = rules(solve_run(tmp_path, junctions), "WE-09")
+    [issue] = [i for i in found if "junctions" not in i.data]       # the network-wide one
+    areas = [i for i in found if "junctions" in i.data]               # one per low area
+    assert "below zero pressure" in issue.message and "1 area(s)" in issue.message
+    assert len(areas) == 1 and areas[0].data["min_pressure_m"] < 0
 
 
 def test_we09_unfed_pieces_are_left_out_and_the_rest_solves(tmp_path):
@@ -269,3 +272,39 @@ def test_customers_add_their_demand_at_the_nearest_junction(tmp_path):
     assert (c["customers"], c["customers_default_demand"], c["customers_not_near_a_junction"]) \
         == (4, 2, 1)
     assert c["customer_demand_lps"] == 0.52
+
+
+def low_area_run(tmp_path, structures):
+    from tests.helpers import make_network, mapping
+    from waterforge.check import check_network
+
+    # B and C (joined by pipe 2) sit above the reservoir's 60 m head; D is fine
+    junctions = [(1, point(100, 0), 70, 1.0), (2, point(200, 0), 75, 1.0),
+                 (3, point(100, -80), 10, 0.0), (4, point(0, 0), 10, 0.0)]
+    path = make_network(tmp_path, BASE_PIPES, junctions=junctions,
+                        fittings=BASE_POINTS["fittings"],
+                        structures=[(1, point(-5, 0), "reservoir", None, 60), *structures])
+    result = check_network(path, mapping(), solves=True)
+    return [i for i in rules(result, "WE-09") if "junctions" in i.data]
+
+
+def test_we09_low_pressure_area_names_the_nearest_pump_station(tmp_path):
+    [area] = low_area_run(tmp_path, [(2, point(150, 30), "pump")])
+    assert area.data["junctions"] == 2 and area.data["pump_station"] == "2"
+    assert area.data["pump_station_distance_m"] == 58.3      # to B and C: (50, 30)
+    assert "pumps aren't in the model" in area.message
+    assert {"layer": "pipes", "id": 2} in area.features
+    assert area.location.equals(point_geom(200, 0))       # the lowest pressure: C
+
+
+def test_we09_low_pressure_area_with_no_pump_station_near(tmp_path):
+    [area] = low_area_run(tmp_path, [(2, point(150, 3000), "pump")])   # 3 km away
+    assert "pump_station" not in area.data
+    assert "no pump station within 1000 m" in area.message
+
+
+def point_geom(dx, dy):
+    import shapely
+
+    from tests.helpers import X, Y
+    return shapely.Point(X + dx, Y + dy)

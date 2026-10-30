@@ -107,7 +107,8 @@ def check_read(network: Network, mapping: Mapping, checks="all", fill_sizes=None
     solved = None
     if solves:
         step(4, "Solving (steady state)")
-        solved, solve_issue = solves_level(model, mapping)
+        solved, solve_issue, areas = solves_level(model, mapping, network)
+        analysis += areas
         if solve_issue is not None:
             if solve_issue.data.get("left_out") or "110" in solved.errors:  # unfed pieces
                 for issue in analysis:
@@ -141,7 +142,66 @@ def fed_part(model: Model) -> tuple[Model, dict]:
     return replace(model, junctions=junctions, links=links), left_out
 
 
-def solves_level(model: Model, mapping: Mapping):
+PUMP_STATION_NEAR = 1000.0   # m: a pump station this close to a low-pressure area is named
+
+
+def low_pressure_areas(model: Model, result: EpanetResult, network: Network | None):
+    """WE-09, one issue per area below zero pressure: neighbouring junctions (joined by open
+    links) whose pressure is negative, with the nearest pump station (structures typed
+    `pump station`) when there is one within PUMP_STATION_NEAR."""
+    import numpy as np
+    import pandas as pd
+    import shapely
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    pressure = pd.Series(result.junction_pressures, dtype=float)
+    low = pressure[pressure < 0]
+    if low.empty:
+        return []
+    j = model.junctions.set_index("name").loc[low.index]
+    index = pd.Series(np.arange(len(low)), index=low.index)
+    links = model.links[(model.links.status != "Closed") & model.links.start.isin(index.index)
+                        & model.links.end.isin(index.index)]
+    a, b = index[links.start].to_numpy(), index[links.end].to_numpy()
+    graph = coo_matrix((np.ones(len(a)), (a, b)), shape=(len(low), len(low)))
+    _, area = connected_components(graph, directed=False)
+    points = shapely.points(j.x.to_numpy(), j.y.to_numpy())
+    stations = network.points[(network.points.asset == "structure")
+                              & (network.points.asset_type == "pump station")] \
+        if network is not None else None
+    pumps_modelled = bool((model.links.kind == "pump").any())
+    issues = []
+    for k in range(area.max() + 1):
+        members = np.flatnonzero(area == k)
+        names = low.index[members]
+        worst = members[np.argmin(low.to_numpy()[members])]
+        ground = float(j.elevation.to_numpy()[members].max())
+        text = (f"{len(members):,} junction(s) below zero pressure (lowest "
+                f"{low.iloc[worst]:.1f} m, ground up to {ground:.0f} m)")
+        data = {"junctions": len(members), "min_pressure_m": round(float(low.iloc[worst]), 2),
+                "max_ground_m": round(ground, 2)}
+        if stations is not None and len(stations):
+            here = shapely.multipoints(points[members])
+            far = shapely.distance(stations.geometry.values, here)
+            near = int(np.argmin(far))
+            if far[near] <= PUMP_STATION_NEAR:
+                station = stations.iloc[near]
+                text += (f": the nearest pump station is {station.fid}, {far[near]:.0f} m away"
+                         + ("; pumps aren't in the model" if not pumps_modelled else
+                            "; check its pumps in the model"))
+                data |= {"pump_station": str(station.fid),
+                         "pump_station_distance_m": round(float(far[near]), 1)}
+        if "pump_station" not in data:
+            text += (": the ground is higher than the sources that feed it, with no pump "
+                     f"station within {PUMP_STATION_NEAR:g} m; a source head may be wrong")
+        area_links = links[links.start.isin(names) & links.end.isin(names)]
+        issues.append(Issue("WE-09", text, model.features_of(area_links.name), points[worst],
+                            data=data))
+    return issues
+
+
+def solves_level(model: Model, mapping: Mapping, network: Network | None = None):
     """WE-09: run the model with its recorded inputs; say which inputs were missing.
 
     Pieces no source reaches are left out of the run (they are WE-08 already), so the rest
@@ -193,10 +253,13 @@ def solves_level(model: Model, mapping: Mapping):
     elif left_out:
         text = "The run completes for the part sources reach."
     else:
-        return result, None
+        return result, None, []
     data = {"inputs": inputs, "errors": result.errors, "pressures": result.pressures,
             "warnings": result.warnings[:10], "left_out": left_out}
-    return result, Issue("WE-09", text + note, [], shapely.Point(), data=data)
+    areas = low_pressure_areas(filled, result, network) if result.ran else []
+    if areas:
+        note += f" {len(areas)} area(s) below zero pressure, each its own WE-09 issue."
+    return result, Issue("WE-09", text + note, [], shapely.Point(), data=data), areas
 
 
 def compare_with_epanet(analysis: list[Issue], result: EpanetResult, model: Model) -> list[str]:
