@@ -42,14 +42,31 @@ def evaluation_settings(name):
     return parse_mapping(data)
 
 
+def close(found, expected, share):
+    """Within `share` of the expected count (at least 3 either way)."""
+    return abs(found - expected) <= max(3, share * expected)
+
+
 @pytest.mark.parametrize("name", sorted(BASELINE))
 def test_matches_the_evaluation(name):
+    """Exact on the October 2026 data; on a fresh download (the nightly job), close to it.
+
+    The councils edit their networks, so a fresh download drifts (Townsville, 31 Oct 2026:
+    30,568 mains, 50 unfed pieces). The exact baseline applies when the mains count is the
+    snapshot's; otherwise the counts must stay near it, so a real regression still fails.
+    """
     mains, sources, joined, unfed = BASELINE[name]
     result = check_network(city(name), evaluation_settings(name))
-    assert len(result.network.pipes) == mains
-    assert len(result.network.sources) == sources
-    assert len(result.model.reservoirs) == joined
-    assert sum(i.rule == "WE-08" for i in result.issues) == unfed
+    found = (len(result.network.pipes), len(result.network.sources),
+             len(result.model.reservoirs), sum(i.rule == "WE-08" for i in result.issues))
+    if found[0] == mains:
+        assert found == BASELINE[name]
+    else:
+        print(f"{name}: the data has changed since October 2026: (mains, sources, joined, "
+              f"unfed) = {found}, baseline {BASELINE[name]}")
+        assert close(found[0], mains, 0.02)
+        assert close(found[1], sources, 0.05) and close(found[2], joined, 0.05)
+        assert close(found[3], unfed, 0.15)
     assert result.epanet.opened and result.disagreements == []
 
 

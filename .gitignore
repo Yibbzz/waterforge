@@ -8,8 +8,10 @@ coverage.xml
 htmlcov/
 
 # downloaded city data and outputs: never committed (Wellington's terms)
-data/
+/data/
 *.inp
+# EPANET's example networks for the round-trip tests are committed
+!tests/data/epanet/*.inp
 *.rpt
 issues.gpkg
 report.json
