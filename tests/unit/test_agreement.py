@@ -160,3 +160,42 @@ def test_epanet_235_misses_valves_written_one_after_the_other():
     assert "WE-05" in rules
     assert "220" not in answer.errors     # if this fails, EPANET was fixed: drop the difference
     assert disagreements == []
+
+
+# WE-09: the steady state. Its answer is EPANET's own run, so there is no separate engine
+# prediction to compare; instead the pressures EPANET returns for the model the engine writes
+# must match a hand calculation (heads, elevations, demands, sizes and units all carried
+# through correctly).
+
+def hazen_williams_loss(length_m, diameter_mm, flow_lps, c=130.0):
+    """Head loss (m) in a pipe, as EPANET computes it in SI units."""
+    q, d = flow_lps / 1000, diameter_mm / 1000
+    return 10.667 * c ** -1.852 * d ** -4.871 * length_m * q ** 1.852
+
+
+def test_we09_pressures_match_a_hand_calculation():
+    from waterforge.check import solves_level
+
+    # R1 (head 50 m) -P1- J1 (20 m) -P2- J2 (30 m, 10 L/s); pipes 10 m, 100 mm, C 130
+    m = model(["J1", "J2"], [("P1", "R1", "J1"), ("P2", "J1", "J2")])
+    m.junctions["elevation"] = [20.0, 30.0]
+    m.junctions["demand"] = [0.0, 10.0]
+    result, issue, areas = solves_level(m, MAPPING)
+    loss = hazen_williams_loss(10, 100, 10)
+    expected = {"J1": 50 - loss - 20, "J2": 50 - 2 * loss - 30}
+    assert result.ran and issue is None and areas == []
+    for name, pressure in expected.items():
+        assert abs(result.junction_pressures[name] - pressure) < 0.05, (name, pressure)
+
+
+def test_we09_ground_above_the_source_is_below_zero_in_both():
+    from waterforge.check import solves_level
+
+    m = model(["J1", "J2"], [("P1", "R1", "J1"), ("P2", "J1", "J2")])
+    m.junctions["elevation"] = [20.0, 60.0]   # J2's ground is 10 m above the 50 m head
+    m.junctions["demand"] = [0.0, 0.1]
+    result, issue, _ = solves_level(m, MAPPING)
+    assert issue is not None and issue.rule == "WE-09"
+    assert result.pressures["negative"] == 1
+    assert abs(result.junction_pressures["J2"] - (50 - 60)) < 0.05
+    assert "1 junctions below zero pressure" in issue.message

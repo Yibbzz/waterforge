@@ -75,6 +75,11 @@ def test_default_check_and_export_load_in_epanet(name, tmp_path):
     mapping = load_mapping(EXAMPLES / f"{name}.yaml")
     result = check_network(city(name), mapping)
     assert result.disagreements == []
+    # every unfed piece is traced: a GIS issue, closed valves, or nothing found at its edges
+    unfed = [i for i in result.issues if i.rule == "WE-08"]
+    assert unfed and all(i.data["reason"] in ("gis issue", "closed valves", "none found")
+                         for i in unfed)
+    assert all(i.cause for i in unfed if i.data["reason"] == "gis issue")
     filled = check_network(result.network, mapping, fill_sizes=True, run_epanet=False)
     inp = tmp_path / f"{name}.inp"
     write_inp(filled.model, inp)

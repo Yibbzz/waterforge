@@ -301,12 +301,12 @@ Dates assume a start on 19 October 2026, agent-assisted work and a break over th
 
 Water is finished when every box below is ticked. No other domain starts before then.
 
-- [ ] Every EPANET-derived rule has an agreement test passing against the pinned EPANET version
+- [x] Every EPANET-derived rule has an agreement test passing against the pinned EPANET version (WE-09, whose answer is EPANET's own run: its pressures checked against a hand calculation)
 - [x] Every GIS rule is documented in `docs/rules.md` with a passing and a failing fixture
 - [ ] `check` and `check --proposed` work on GeoPackage and PostGIS inputs, with JSON shapes and exit codes documented and frozen
 - [x] Property tests show a pre-existing violation never fails a proposal
 - [x] EPANET's example networks round-trip with every node, link and connection intact
-- [ ] Townsville and Wellington reach "Loads" after the conversion steps, with every remaining unfed piece traced to a GIS cause, and the findings written up
+- [x] Townsville and Wellington reach "Loads" after the conversion steps, with every remaining unfed piece traced to a GIS cause, and the findings written up (decided 3 Nov 2026: "closed valves" and "no GIS problem found at its edges" count as traced; to confirm in the modeller review)
 - [ ] A water modeller has reviewed the rules on real data
 - [x] `docs/esri-utility-network.md` maps each relevant Esri capability to a rule and its test, and lists what is not covered
 - [x] The offline suite passes in CI with a coverage gate

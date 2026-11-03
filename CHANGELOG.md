@@ -30,6 +30,8 @@ First version, built from the brief (docs/brief.md) and the open-water-checks ev
   supply), keeping their proportions, or spread evenly when there are none. The example
   mappings use Wellington City's 2024/25 total (941 L/s) and Townsville's metered 2024/25
   consumption (1,186 L/s).
+- WE-08: every unfed piece has `data.reason`: `gis issue` (the issues in `cause`), `closed
+  valves` (the valves are among its features, so they select on the map) or `none found`.
 - `check --solve`: each area below zero pressure is its own WE-09 issue, naming the nearest pump
   station within 1 km (where pumps are probably missing from the model).
 - A source with no head or levels takes the DEM's ground plus `source_above_ground` (5 m).

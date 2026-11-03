@@ -49,7 +49,7 @@ def test_wg02_near_miss_is_reported_and_causes_the_unfed_piece(tmp_path):
     [miss] = rules(result, "WG-02")
     assert miss.features[0] == {"layer": "pipes", "id": 4}
     [unfed] = rules(result, "WE-08")
-    assert unfed.cause == [miss.id]
+    assert unfed.cause == [miss.id] and unfed.data["reason"] == "gis issue"
     assert "pipe 4" in unfed.message and result.disagreements == []
 
 
@@ -165,6 +165,8 @@ def test_wg10_closed_valve_on_a_pipe_cuts_it(tmp_path):
     assert result.model.changes["closed_valves"] == 1
     [unfed] = rules(result, "WE-08")             # pipe 2 beyond the valve gets no water
     assert "closed valve" in unfed.message and result.disagreements == []
+    assert unfed.data["reason"] == "closed valves" and unfed.cause == []
+    assert {"layer": "valves", "id": 1} in unfed.features   # selects on the map
 
 
 def test_wg10_closed_valve_between_two_pipes_at_a_node(tmp_path):
@@ -174,7 +176,7 @@ def test_wg10_closed_valve_between_two_pipes_at_a_node(tmp_path):
     result = run(tmp_path, pipes, **points)
     assert result.model.changes["closed_valves"] == 1
     [unfed] = rules(result, "WE-08")
-    assert unfed.features == [{"layer": "pipes", "id": 4}]
+    assert unfed.features == [{"layer": "pipes", "id": 4}, {"layer": "valves", "id": 1}]
 
 
 @pytest.mark.parametrize("where, severity", [
@@ -187,6 +189,17 @@ def test_wg10_closed_valves_that_cant_be_modelled(tmp_path, where, severity):
     [issue] = rules(result, "WG-10")
     assert issue.severity == severity
     assert result.model.changes["closed_valves"] == 0
+
+
+def test_we08_piece_with_no_cause_found(tmp_path):
+    # a capped pipe on its own, far from the rest: a separate scheme, or its source is missing
+    pipes = [*BASE_PIPES, (4, line((400, 0), (500, 0)), 100)]
+    points = {**BASE_POINTS, "fittings": [*BASE_POINTS["fittings"],
+                                          (4, point(400, 0), "end cap"),
+                                          (5, point(500, 0), "end cap")]}
+    [unfed] = rules(run(tmp_path, pipes, **points), "WE-08")
+    assert unfed.data["reason"] == "none found" and unfed.cause == []
+    assert unfed.features == [{"layer": "pipes", "id": 4}]
 
 
 def test_closed_valves_step_off(tmp_path):

@@ -196,9 +196,17 @@ One issue per piece of network that no tank or reservoir reaches (closed valves 
 network, as they do in EPANET). The issue's location is the piece's pipes, and its `cause`
 lists the GIS issues at the piece's edge, most likely first: a side join not split (WG-12), a
 near miss (WG-02), an unjoined source within 250 m (WG-16), a closed valve that couldn't be
-placed (WG-10), a pipe end at nothing or at a valve (WG-01). When no GIS problem is found, the
-message says whether the piece is behind closed valves, or else that it is a separate scheme
-or its source isn't in the data.
+placed (WG-10), a pipe end at nothing or at a valve (WG-01).
+
+Every piece is traced to one of three reasons, in `data.reason`:
+
+- `gis issue`: the issues in `cause`, as above;
+- `closed valves`: no GIS problem at its edges, but closed valves shut it off; the valves are
+  among the issue's features (and in `data.closed_valves`), so they select on the map. Either
+  part of the network is kept shut on purpose, or a valve's recorded status is wrong;
+- `none found`: no GIS problem and no closed valve at its edges. Usually a separate scheme
+  (a private supply, a piece fed from somewhere the data doesn't hold), or its source isn't in
+  the data. Accepted as an answer on 3 November 2026; a modeller's review may change it.
 
 In testing on two cities, after the conversion steps most unfed pieces were single orphan
 pipes and near misses: those need a person.

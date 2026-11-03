@@ -150,6 +150,11 @@ tests/realdata/README.md; ~10 min). Lint: `uv run ruff check .`. Coverage: `uv r
   Townsville 1,186 L/s (metered 2024/25, 37,387,870 kL, data.gov.au CC BY 4.0; no leakage,
   spread evenly: no customers layer). Wellington solve: 721 junctions below zero in 50 areas
   (593 / 58 with the flat 600 L/day).
+- 2026-11-03: every WE-08 piece is "traced" (brief box): `data.reason` = `gis issue` /
+  `closed valves` (valves added to its features) / `none found` (separate scheme or source
+  not in the data; accepted, to confirm with a modeller). Townsville 122 = 43 / 60 / 19,
+  Wellington 265 = 151 / 47 / 67. WE-09's agreement test = EPANET's pressures vs a
+  Hazen-Williams hand calculation (its answer is EPANET's own run).
 - 2026-10-28: Wellington tanks: `twl_m` (top water level, m above datum, checked against the
   ground beside each tank) is the head; `elevation_m` is empty for tanks.
 

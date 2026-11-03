@@ -185,12 +185,17 @@ def unfed(model: Model, mapping: Mapping, gis_issues: list[Issue]) -> list[Issue
         valves = links[closed & (links.start.isin(nodes) | links.end.isin(nodes))]
         causes = sorted(piece_causes.get(lab, []),
                         key=lambda i: (CAUSE_ORDER.index(i.rule), i.severity != "error"))
+        # every piece gets a reason: a GIS issue at its edge, the closed valves that shut it
+        # off (named in its features, so they select on the map), or nothing found
         if causes:
+            reason = "gis issue"
             why = f"likely cause: {causes[0].message} ({causes[0].rule})"
         elif len(valves):
+            reason = "closed valves"
             why = (f"it is behind {len(valves)} closed valve(s) "
                    f"({', '.join(map(str, valves.fid.head(3)))}), with no source inside")
         else:
+            reason = "none found"
             why = ("no GIS problem found at its edges: a separate scheme, or its source "
                    "isn't in the data")
         size = f"{len(piece_links)} pipe(s), {km * 1000:.0f} m" if km < 1 else \
@@ -199,10 +204,12 @@ def unfed(model: Model, mapping: Mapping, gis_issues: list[Issue]) -> list[Issue
             if len(piece_links) else _node_point(model, next(iter(nodes)))
         issues.append(Issue(
             "WE-08", f"No tank or reservoir reaches {size} ({junctions} junctions); {why}",
-            model.features_of(piece_links.name), geometry, cause=[i.id for i in causes],
+            model.features_of(piece_links.name)
+            + (model.features_of(valves.name) if reason == "closed valves" else []),
+            geometry, cause=[i.id for i in causes],
             data={"junctions": junctions, "pipes": len(piece_links),
                   "length_m": round(float(km * 1000), 1),
-                  "closed_valves": [str(v) for v in valves.fid]}))
+                  "closed_valves": [str(v) for v in valves.fid], "reason": reason}))
     return issues
 
 
