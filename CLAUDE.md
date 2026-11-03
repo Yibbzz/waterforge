@@ -3,7 +3,7 @@
 Open rules engine for drinking water network GIS data: checks a network against network rules
 and turns it into an EPANET model, with EPANET 2.3.5 as the referee (as Valhalla is for
 NetworkForge). The plan, scope and guardrails are in `docs/brief.md`: **read it before any
-task** and follow its "Guardrails for agents". Private repo: github.com/Yibbzz/waterforge.
+task** and follow its "Guardrails for agents". Repo: github.com/Yibbzz/waterforge (public).
 
 Python >= 3.12, managed with `uv`. Run things with `uv run ...`. The package is installed
 editable by `uv sync` (hatchling). No QGIS code in this repo.
@@ -11,18 +11,15 @@ editable by `uv sync` (hatchling). No QGIS code in this repo.
 Tests: `uv run pytest` (offline, ~1.5 min, includes the EPANET agreement tests and round trips;
 `-m postgis` needs a database, see Gotchas).
 `uv run pytest -m realdata` runs whole cities (needs `WATERFORGE_DATA`, see
-tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv run pytest --cov`.
+tests/realdata/README.md; ~10 min). Lint: `uv run ruff check .`. Coverage: `uv run pytest --cov`.
 
-## Working with the user
+## Working here
 
-- The user (Nathan) is learning as they go: plain language, lead with the result, clear next
-  steps, verify rather than assume.
-- **Commit and push only when asked.** Commits show only the user:
-  `git -c user.name="Nathan" -c user.email="nathanleeks@gmail.com" commit ...`, with **no**
-  `Co-Authored-By` or "Generated with Claude" lines.
+- **Commit and push only when asked**, with no `Co-Authored-By` or "Generated with Claude"
+  lines. Maintainer-specific notes live in `CLAUDE.local.md` (not committed).
 - Be honest about limits: what was run vs only read about; correct earlier claims when wrong.
-- The evaluation behind this engine is in `~/open-water-checks` (its `docs/findings.md`);
-  don't change it or `~/networkforge*` from here.
+- The baseline counts come from an earlier hand-made evaluation, open-water-checks (not
+  public); its numbers are in `tests/realdata/test_cities.py`.
 
 ## Source (`src/waterforge/`)
 
@@ -82,7 +79,8 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 ## Decisions (dated)
 
 - 2026-10-28: name **WaterForge** (package `waterforge`), **GPL-3.0** (as NetworkForge),
-  **YAML** for mappings and rule packs, private GitHub repo under Yibbzz.
+  **YAML** for mappings and rule packs, GitHub repo under Yibbzz (private until 2026-11-03,
+  then public).
 - 2026-10-27: EPANET **2.3.5** through `owa-epanet==2.3.5`, pinned; upgrades are deliberate
   with the agreement tests re-run. The engine writes the `.inp` itself; no WNTR.
 - 2026-10-27: "no automatic fixing" = the source is never modified. The engine may change
@@ -192,7 +190,7 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 
 ## Next steps (in order)
 
-1. A modeller reviews the rules on real data (the modeller summary doc in open-water-checks);
+1. A modeller reviews the rules on real data (a summary doc for modellers, shared separately);
    fold their answers in (defaults: 1 mm, 1 m, 25 m; split side joins; closed valves).
 2. Pump duty points for Wellington's stations (ask Wellington Water; the WE-09 areas name the
    stations that matter most); multi-point pump curves and patterns (the Solves level is a

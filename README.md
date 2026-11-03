@@ -20,7 +20,8 @@ WaterForge then:
   change introduces, never on old errors.
 
 > **Status: pre-alpha (0.1.0.dev0).** All 25 rules of the brief are implemented, plus
-> WG-17 (recorded elevations against a terrain model). Checking whole
+> WG-17 (recorded elevations against a terrain model) and WG-18 (a utility's own table of
+> what must never connect). Checking whole
 > networks and proposals, exporting `.inp` and the steady-state run are tested on two cities'
 > open data (Townsville, Australia and Wellington, New Zealand) and on EPANET's example
 > networks. A water modeller's review is still to come. Flags and JSON shapes may still change
@@ -87,13 +88,31 @@ On Townsville's 30,553 mains and Wellington's 33,688 (each checked in about 15 s
 | Recorded levels > 5 m from LINZ's 1 m DEM (WG-17), in batches | - | 126, 92 in 9 batches |
 | EPANET 2.3.5 | loads the export | loads the export |
 
-The counts with closed valves left open match the hand-made evaluation in
-[open-water-checks](https://github.com/Yibbzz/open-water-checks) exactly; a nightly test
-keeps them that way. EPANET's example networks Net1 to Net3 survive a round trip through GIS
+The counts with closed valves left open match an earlier hand-made evaluation exactly; a
+nightly test keeps them that way. With the example mappings' starter connection tables
+(WG-18), Townsville has 12 places where raw-water mains touch treated mains, and Wellington
+444 hydrants and 759 service connections on trunk mains (the utilities' own tables would
+differ). Wellington solves as a steady state with elevations from the DEM and demands scaled
+to its published 2024/25 supply (941 L/s): 721 junctions below zero pressure in 50 areas,
+each issue naming the nearest pump station (the open data has no pump duty points). EPANET's example networks Net1 to Net3 survive a round trip through GIS
 layers with every node, link and connection intact.
 
 How it compares with Esri's Utility Network, capability by capability:
 [docs/esri-utility-network.md](docs/esri-utility-network.md).
+
+## Data
+
+The example mappings and the nightly test use two councils' open data, downloaded by
+`tests/realdata/download.py` and never committed:
+
+- [Townsville City Council](https://data-tsvcitycouncil.opendata.arcgis.com/) water network
+  and [water consumption](https://data.gov.au/data/dataset/tcc-water-consumption): CC BY 4.0.
+- [Wellington Water](https://data-wellingtonwater.opendata.arcgis.com/) network data for
+  Wellington City: credit Wellington Water; not for commercial use or detailed design.
+  Supply figure from Wellington Water's
+  [2024/25 water loss overview](https://www.wellingtonwater.co.nz/assets/Reports-and-Publications/202425-WCC-Water-Loss-Overview.pdf).
+- Wellington City LiDAR 1 m DEM (2025): Toitū Te Whenua LINZ, licensor Wellington City
+  Council, CC BY 4.0, from LINZ's public `nz-elevation` bucket.
 
 ## What it doesn't do
 

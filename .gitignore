@@ -17,3 +17,6 @@ issues.gpkg
 report.json
 # EPANET scratch files
 /en??????
+
+# personal notes for Claude Code
+CLAUDE.local.md

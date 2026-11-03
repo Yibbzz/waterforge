@@ -1,6 +1,6 @@
 # Utility Network Rules Engine: Drinking Water Brief
 
-Oct 16, 2026 · @Nathan · updated Oct 27, 2026 after testing on two real networks ([open-water-checks](https://github.com/Yibbzz/open-water-checks))
+Oct 16, 2026 · @Nathan · updated Oct 27, 2026 after testing on two real networks (open-water-checks, an evaluation not published)
 
 ## Purpose and long-term goal
 
@@ -45,7 +45,7 @@ This engine targets the gap rows. It is the part that knows what is allowed; QGI
 
 ## What testing showed
 
-Before building, the idea was tested on two whole cities' open data with today's tools ([open-water-checks](https://github.com/Yibbzz/open-water-checks), `docs/findings.md`): Townsville, Australia (30,553 mains, Esri-style layers) and Wellington City, New Zealand (33,688 mains, exported from InfoNet with recorded node ids).
+Before building, the idea was tested on two whole cities' open data with today's tools (open-water-checks, not published; its findings are summarised here): Townsville, Australia (30,553 mains, Esri-style layers) and Wellington City, New Zealand (33,688 mains, exported from InfoNet with recorded node ids).
 
 - **The gap is real.** No open tool takes asset data as it is (valves and sources as points, sizes as text, no junction layer) to an EPANET model, and none links EPANET's failures to GIS causes. Nothing labels a proposal's problems as new or pre-existing.
 - **It is feasible.** About ten small rules took both cities from raw GIS data to a model EPANET 2.3.5 accepts: join pipe ends within 1 mm, read fittings as evidence, split a main where another pipe ends on its side, cut ring mains in two, join sources within 25 m, and fill missing sizes. With a token demand at every junction both models solve. The same code ran on both utilities; the only per-utility code was a field mapping of about 30 lines.
@@ -302,14 +302,14 @@ Dates assume a start on 19 October 2026, agent-assisted work and a break over th
 Water is finished when every box below is ticked. No other domain starts before then.
 
 - [ ] Every EPANET-derived rule has an agreement test passing against the pinned EPANET version
-- [ ] Every GIS rule is documented in `docs/rules.md` with a passing and a failing fixture
+- [x] Every GIS rule is documented in `docs/rules.md` with a passing and a failing fixture
 - [ ] `check` and `check --proposed` work on GeoPackage and PostGIS inputs, with JSON shapes and exit codes documented and frozen
-- [ ] Property tests show a pre-existing violation never fails a proposal
-- [ ] EPANET's example networks round-trip with every node, link and connection intact
+- [x] Property tests show a pre-existing violation never fails a proposal
+- [x] EPANET's example networks round-trip with every node, link and connection intact
 - [ ] Townsville and Wellington reach "Loads" after the conversion steps, with every remaining unfed piece traced to a GIS cause, and the findings written up
 - [ ] A water modeller has reviewed the rules on real data
-- [ ] `docs/esri-utility-network.md` maps each relevant Esri capability to a rule and its test, and lists what is not covered
-- [ ] The offline suite passes in CI with a coverage gate
+- [x] `docs/esri-utility-network.md` maps each relevant Esri capability to a rule and its test, and lists what is not covered
+- [x] The offline suite passes in CI with a coverage gate
 - [ ] v0.1 is tagged and released
 
 **Later phases, one at a time**
@@ -328,14 +328,14 @@ These are the owner's calls. Agents record each decision with its date in `CLAUD
 
 | Decision | Options | Notes |
 | --- | --- | --- |
-| Name and package name | To be chosen | No Esri names or logos in it |
-| License | GPL-3.0 like NetworkForge, or a permissive license | GPL fits the QGIS ecosystem; permissive makes reuse by other tools easier |
+| ~~Name and package name~~ | **Decided 28 Oct 2026:** WaterForge (`waterforge`) | No Esri names or logos in it |
+| ~~License~~ | **Decided 28 Oct 2026:** GPL-3.0, like NetworkForge | GPL fits the QGIS ecosystem; permissive makes reuse by other tools easier |
 | ~~EPANET access~~ | **Decided 27 Oct 2026:** EPANET 2.3.5 through `owa-epanet`, pinned | WNTR bundles 2.2 at most; tested on both cities |
 | ~~Default snapping tolerance~~ | **Suggested by testing:** 1 mm for joins, 1 m for near misses | Configurable; confirm with a modeller |
-| Pipe ends on another pipe's side | Split in the export (default), or flag only | Esri and QGIS treat them as connected; EPANET doesn't |
-| Config format | YAML or TOML | Field mapping and rule packs use the same format |
-| Valves and pumps as points | Convert to short links (Giswater's approach), or require them drawn as links | Most utility GIS draws them as points; both test cities do |
-| Missing elevations and demands at the Solves level | Skip with a notice, apply defaults, or sample a DEM | Loads level never needs them; neither test city publishes demands |
+| ~~Pipe ends on another pipe's side~~ | **Decided 28 Oct 2026:** split in the model by default (`split_side_joins`), still reported as WG-12; confirm with a modeller | Esri and QGIS treat them as connected; EPANET doesn't |
+| ~~Config format~~ | **Decided 28 Oct 2026:** YAML | Field mapping and rule packs use the same format |
+| ~~Valves and pumps as points~~ | **Decided 28 Oct 2026:** both: points become links in the model, lines are used as drawn | Most utility GIS draws them as points; both test cities do |
+| ~~Missing elevations and demands at the Solves level~~ | **Decided 30 Oct to 3 Nov 2026:** elevations from a DEM (`--dem`), else the nearest known; demands from customers layers, scaled to a published total (`total_demand`) | Loads level never needs them; neither test city publishes demands |
 | ~~First real dataset~~ | **Done:** Townsville (CC BY 4.0) and Wellington (non-commercial) open data | A third, from a utility that joins at vertices Esri-style, would test the split setting |
 | ~~Network Studio~~ | **Evaluated October 2026:** stay independent | Its connectivity model hides the errors this engine exists to find |
 | Gusnet | Write Gusnet's layers as an output, or stay with `.inp` only | Gusnet could serve as a second, front-end check |
@@ -365,7 +365,7 @@ Keep a copy of this brief in the repo as `docs/brief.md`, and read it before sta
 **Related projects**
 
 - [NetworkForge](https://github.com/Yibbzz/networkforge): the pattern this engine follows
-- [open-water-checks](https://github.com/Yibbzz/open-water-checks): the evaluation behind this update (private)
+- open-water-checks: the evaluation behind this update (not published)
 - [routing.earth tutorial challenge](https://github.com/routing-earth/qgis-network-analyst-tutorial-challenge): the Network Analyst replacement work
 - [easy-R5](https://github.com/GISBoost/easy-R5): transit accessibility plugin, candidate for the same engine split
 

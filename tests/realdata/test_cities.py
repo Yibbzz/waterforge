@@ -3,7 +3,7 @@ Whole cities' open data: the regression baseline from open-water-checks (October
 
 Needs the two cities' layers downloaded (see README.md in this folder):
 
-    WATERFORGE_DATA=~/open-water-checks/data uv run pytest -m realdata
+    WATERFORGE_DATA=<folder with townsville.gpkg and wellington.gpkg> uv run pytest -m realdata
 
 With the evaluation's settings (no closed valves, sizes filled) the counts must match what
 open-water-checks measured by hand: 49 and 175 pieces no source reaches after splitting.
