@@ -150,6 +150,10 @@ tests/realdata/README.md; ~10 min). Lint: `uv run ruff check .`. Coverage: `uv r
   Townsville 1,186 L/s (metered 2024/25, 37,387,870 kL, data.gov.au CC BY 4.0; no leakage,
   spread evenly: no customers layer). Wellington solve: 721 junctions below zero in 50 areas
   (593 / 58 with the flat 600 L/day).
+- 2026-11-03: **v0.1.0 released** before the modeller review (the user's choice): the
+  review's answers go into 0.2.0 (before 1.0 a minor version may change flags / JSON, said in
+  CHANGELOG). Releases: bump `version`, move CHANGELOG's Unreleased to `[x.y.z] - date`,
+  push tag `vx.y.z`; release.yml makes the GitHub release (no PyPI).
 - 2026-11-03: every WE-08 piece is "traced" (brief box): `data.reason` = `gis issue` /
   `closed valves` (valves added to its features) / `none found` (separate scheme or source
   not in the data; accepted, to confirm with a modeller). Townsville 122 = 43 / 60 / 19,
@@ -203,8 +207,7 @@ tests/realdata/README.md; ~10 min). Lint: `uv run ruff check .`. Coverage: `uv r
    Townsville publishes residential use by suburb (2019/20) if finer shares are wanted.
    `--dem` and WG-17 done on Wellington (2026-10-30); WG-17's batches could go to
    Wellington Water to confirm the cause.
-3. Release v0.1 once the brief's "Done for water" list is ticked (left: the modeller review
-   and the tag: bump `version`, move CHANGELOG's Unreleased to [0.1.0], push `v0.1.0`;
-   `.github/workflows/release.yml` builds and publishes the GitHub release).
+3. v0.1.0 released 2026-11-03; the modeller review's answers make 0.2.0 (the last
+   "Done for water" box).
 4. Later: Gusnet layers as an output, the QGIS plugin in its own repo. The example
    connection tables (WG-18) want the utilities' or a modeller's confirmation.

@@ -310,7 +310,7 @@ Water is finished when every box below is ticked. No other domain starts before 
 - [ ] A water modeller has reviewed the rules on real data
 - [x] `docs/esri-utility-network.md` maps each relevant Esri capability to a rule and its test, and lists what is not covered
 - [x] The offline suite passes in CI with a coverage gate
-- [ ] v0.1 is tagged and released
+- [x] v0.1 is tagged and released (3 Nov 2026, before the modeller review, by the owner's choice: the review's changes go into 0.2.0)
 
 **Later phases, one at a time**
 

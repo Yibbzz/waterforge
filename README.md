@@ -19,13 +19,14 @@ WaterForge then:
 - checks a proposed change against the existing network and fails only on the problems the
   change introduces, never on old errors.
 
-> **Status: pre-alpha (0.1.0.dev0).** All 25 rules of the brief are implemented, plus
-> WG-17 (recorded elevations against a terrain model) and WG-18 (a utility's own table of
-> what must never connect). Checking whole
-> networks and proposals, exporting `.inp` and the steady-state run are tested on two cities'
-> open data (Townsville, Australia and Wellington, New Zealand) and on EPANET's example
-> networks. A water modeller's review is still to come. Flags and JSON shapes may still change
-> before 0.1.0.
+> **Status: alpha (0.1.0).** All 25 rules of the brief are implemented, plus WG-17
+> (recorded elevations against a terrain model) and WG-18 (a utility's own table of what must
+> never connect). Checking whole networks and proposals, exporting `.inp` and the
+> steady-state run are tested on two cities' open data (Townsville, Australia and Wellington,
+> New Zealand) and on EPANET's example networks. A water modeller's review is still to come:
+> its answers may change defaults in 0.2.0. Command-line flags, exit codes and the JSON
+> output ([format 1](docs/json.md)) change only with a new minor version before 1.0, and are
+> listed in the [changelog](CHANGELOG.md).
 
 ## Install
 

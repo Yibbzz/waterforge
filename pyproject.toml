@@ -1,13 +1,13 @@
 [project]
 name = "waterforge"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Check drinking water network GIS data against network rules and turn it into an EPANET model, with EPANET as the referee"
 readme = "README.md"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 keywords = ["water", "epanet", "utility network", "gis", "hydraulic model", "validation"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Programming Language :: Python :: 3.12",

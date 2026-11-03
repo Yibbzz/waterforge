@@ -8,6 +8,8 @@ with a new major version (before 1.0: a new minor version, said here).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-03
+
 First version, built from the brief (docs/brief.md) and the open-water-checks evaluation.
 
 ### Added
@@ -48,3 +50,6 @@ First version, built from the brief (docs/brief.md) and the open-water-checks ev
 - Tests: every rule with a passing and a failing fixture, EPANET agreement tests, EPANET's
   Net1-Net3 round trips, property tests, mutation tests for proposals, whole-city regression
   on Townsville and Wellington open data, PostGIS.
+
+[Unreleased]: https://github.com/Yibbzz/waterforge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Yibbzz/waterforge/releases/tag/v0.1.0
