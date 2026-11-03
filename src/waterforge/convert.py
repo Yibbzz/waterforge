@@ -17,7 +17,8 @@ touched as issues, so the modeller sees every assumption:
   7. fill missing diameters with a default                WG-08  fill_sizes
   8. junction elevations and demands from point assets;   fill_elevations
      junctions with none take the nearest known elevation
-     (or the DEM's); customers add demand at the nearest junction
+     (or the DEM's); customers add demand at the nearest junction;
+     all demands scaled to settings.total_demand when set
 
 Detection always runs; a step that is off only stops the change, so
 WG-12 is still reported (and EPANET then sees the unfed piece, WE-08).
@@ -359,6 +360,7 @@ def build_model(network: Network, mapping: Mapping, fill_sizes: bool = False):
         "roughness": np.where(roughness > 0, roughness, ROUGHNESS), "status": "Open",
         "layer": work.layer.values, "fid": work.fid.values, "part": work.part.values,
         "piece": work.piece.values, "geometry": work.geometry.values,
+        "pipe_class": work.pipe_class.values if "pipe_class" in work else None,
     })
     others = []
     counter = defaultdict(int)
@@ -409,6 +411,7 @@ def build_model(network: Network, mapping: Mapping, fill_sizes: bool = False):
     # 8. junction elevations and demands
     _junction_data(junctions, jpoints, pts, s, steps, changes, network.crs)
     _customer_demands(junctions, jpoints, network, s, changes)
+    _total_demand(junctions, s, changes)
 
     model = Model(junctions, source_table, all_links, dict(changes))
     log.info("Model: %s junctions, %s pipes, %s valves / pumps, %s sources (%s joined by a "
@@ -516,17 +519,7 @@ def _customer_demands(junctions, jpoints, network, s, changes):
     customers = network.customers
     if customers is None or len(customers) == 0 or len(junctions) == 0:
         return
-    geoms = customers.geometry.values
-    where = shapely.point_on_surface(geoms)
-    lines = np.flatnonzero(np.isin(shapely.get_type_id(geoms), (1, 5)))  # (Multi)LineString
-    if len(lines) and len(network.pipes):
-        xy, which = shapely.get_coordinates(geoms[lines], return_index=True)
-        starts = np.searchsorted(which, np.arange(len(lines)))
-        ends = np.searchsorted(which, np.arange(len(lines)), side="right") - 1
-        first, last = shapely.points(xy[starts]), shapely.points(xy[ends])
-        pipes = network.pipes.geometry.values
-        nearer = nearest_distance(first, pipes) <= nearest_distance(last, pipes)
-        where[lines] = np.where(nearer, first, last)
+    where = customer_points(network)
     demand = customers.demand.to_numpy(dtype=float)
     mapped = ~np.isnan(demand)
     demand = np.where(mapped, demand, s.customer_demand)
@@ -538,6 +531,42 @@ def _customer_demands(junctions, jpoints, network, s, changes):
     changes["customers_default_demand"] = int((~mapped).sum())
     changes["customers_not_near_a_junction"] = len(customers) - len(idx[0])
     changes["customer_demand_lps"] = round(float(demand[idx[0]].sum()), 3)
+
+
+def customer_points(network: Network) -> np.ndarray:
+    """Where each customer takes its water: a line (a service connection) at its end nearest
+    a pipe, an area (a building or property) at a point inside it, a point where it is."""
+    geoms = network.customers.geometry.values
+    where = shapely.point_on_surface(geoms)
+    lines = np.flatnonzero(np.isin(shapely.get_type_id(geoms), (1, 5)))  # (Multi)LineString
+    if len(lines) and len(network.pipes):
+        xy, which = shapely.get_coordinates(geoms[lines], return_index=True)
+        starts = np.searchsorted(which, np.arange(len(lines)))
+        ends = np.searchsorted(which, np.arange(len(lines)), side="right") - 1
+        first, last = shapely.points(xy[starts]), shapely.points(xy[ends])
+        pipes = network.pipes.geometry.values
+        nearer = nearest_distance(first, pipes) <= nearest_distance(last, pipes)
+        where[lines] = np.where(nearer, first, last)
+    return where
+
+
+def _total_demand(junctions, s, changes):
+    """Scale every junction's demand so they add up to settings.total_demand (L/s).
+
+    The mapped and customer demands keep their proportions; with none at all, the total is
+    spread evenly over the junctions. A utility's published supply includes its leakage, so
+    the leakage is spread the same way.
+    """
+    if not s.total_demand > 0 or len(junctions) == 0:
+        return
+    before = float(junctions.demand.sum())
+    if before > 0:
+        junctions["demand"] = junctions.demand * (s.total_demand / before)
+    else:
+        junctions["demand"] = s.total_demand / len(junctions)
+    changes["demand_before_total_lps"] = round(before, 3)
+    changes["total_demand_lps"] = round(float(s.total_demand), 3)
+    log.info("Demands scaled to the total of %.1f L/s (were %.1f L/s)", s.total_demand, before)
 
 
 def _merge_cuts(cuts, tol):

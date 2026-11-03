@@ -108,7 +108,7 @@ def test_export_fills_missing_sizes(tmp_path, capsys):
 def test_rules_and_info(capsys):
     assert main(["rules", "--json"]) == 0
     rules = events(capsys)
-    assert len(rules) == 26 and rules[0]["id"] == "WE-01"
+    assert len(rules) == 27 and rules[0]["id"] == "WE-01"
     assert main(["info", "--json"]) == 0
     [info] = events(capsys)
     assert info["epanet"] == "2.3.5"

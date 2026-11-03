@@ -15,11 +15,15 @@ pipes:
     material: material
     start_node: start_node_id
     end_node: end_node_id
+    class:                       # for the connection table (WG-18)
+      field: pipe_type
+      values: {Main: distribution, RIderMain: rider, Trunk Main: trunk,
+               Transmission Main: trunk}
 
 customers:
-  # each service connection is one property: it adds settings.customer_demand (about
-  # 600 L/day, a rough household average) at the junction nearest its end on the main.
-  # Wellington's homes aren't metered, so there is no measured demand to map.
+  # each service connection is one property, at the junction nearest its end on the main.
+  # Wellington's homes aren't metered, so there is no measured demand per property: each
+  # gets the same share of the city's total (settings.total_demand below).
   - layer: pipes
     where: >-
       TRIM(operational_status) = 'In Use'
@@ -63,3 +67,20 @@ structures:
     where: "TRIM(operational_status) = 'In Use'"
     id: asset_id
     type: pump station
+
+# Which assets must never meet (WG-18). A starting point, not Wellington Water's own
+# policy: confirm it with them or a modeller.
+connections:
+  - never: [trunk, hydrant]          # hydrants go on distribution and rider mains
+  - never: [trunk, customer]         # no property service straight off a trunk main
+  - never: [trunk, rider]            # a rider main is fed from distribution mains
+  - never: [trunk, distribution]     # trunk to distribution only through a valve
+    unless: valve
+
+settings:
+  # Wellington City's total supply, 2024/25: Wellington Water's "2024/25 Council Water
+  # Loss and Demand Overview" gives the city's water loss as 18.7 ML/day, 23% of its
+  # demand, so total demand (use plus loss) is about 18.7 / 0.23 = 81.3 ML/day = 941 L/s.
+  # It matches the council's "about 30 million m3 a year". Leakage included, spread like
+  # the use. https://www.wellingtonwater.co.nz/assets/Reports-and-Publications/202425-WCC-Water-Loss-Overview.pdf
+  total_demand: 941

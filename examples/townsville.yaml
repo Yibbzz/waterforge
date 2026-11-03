@@ -9,6 +9,9 @@ pipes:
     id: ASSET_NUMBER
     diameter: PIPE_SIZE          # text, e.g. "150" or "1000+"
     material: PIPE_MAT
+    class:                       # the layer's types (for the connection table, WG-18)
+      field: WATERLINETYPE
+      values: {101: raw, 102: distribution, 103: trunk, 104: reticulation}
 
 fittings:
   - layer: fittings
@@ -43,3 +46,21 @@ structures:
       values: {RESERVOIR: reservoir, WATER_TANK: tank, WATER_TOWER: tank,
                BOOSTER_PUMP: pump station}
       default: other
+
+# Which assets must never meet (WG-18). A starting point, not the council's own policy:
+# confirm it with them or a modeller.
+connections:
+  - never: [raw, reticulation]       # untreated water never joins treated mains
+  - never: [raw, distribution]
+  - never: [raw, trunk]
+  - never: [raw, hydrant]
+  - never: [trunk, hydrant]          # hydrants go on reticulation and distribution mains
+  - never: [trunk, reticulation]     # trunk to reticulation only through a valve
+    unless: valve
+
+settings:
+  # Townsville's metered consumption, 2024/25: 37,387,870 kL over the four quarters
+  # (Townsville City Council Water Consumption, data.gov.au, CC BY 4.0) = 1,186 L/s.
+  # Metered use only: leakage isn't in it. No customers layer is mapped, so it is spread
+  # evenly over the junctions. https://data.gov.au/data/dataset/tcc-water-consumption
+  total_demand: 1186

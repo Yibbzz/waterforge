@@ -105,9 +105,11 @@ def test_wellington_solve_reports_its_missing_inputs():
     result = check_network(city("wellington"), mapping, solves=True)
     [issue] = [i for i in result.issues if i.rule == "WE-09" and "inputs" in i.data]
     inputs = issue.data["inputs"]
-    # demands from the 60,467 service connections (customers), 404 L/s on 30 Oct 2026
+    # demands at the 60,467 service connections (customers), scaled to the city's published
+    # 2024/25 total (941 L/s; it was 404 L/s from a flat 600 L/day each)
     assert inputs["with_elevation"] > 10_000 and inputs["with_demand"] > 10_000
-    assert 200 < inputs["total_demand_lps"] < 800
+    assert inputs["total_demand_lps"] == 941.0
+    assert result.model.changes["demand_before_total_lps"] > 400
     # areas below zero pressure, most next to a pump station (no pumps in the open data)
     areas = [i for i in result.issues if i.rule == "WE-09" and "junctions" in i.data]
     near = [a for a in areas if "pump_station" in a.data]
@@ -147,3 +149,22 @@ def test_wellington_dem_fills_every_elevation_and_agrees_with_the_records():
     assert c["elevations_from_dem"] > 10_000 and "elevations_filled" not in c
     assert c["junctions_with_elevation"] + c["elevations_from_dem"] == len(
         result.model.junctions)
+
+
+@pytest.mark.parametrize("name, expected", [
+    # 3 Nov 2026, with the example mappings' starter tables (not the utilities' own policy)
+    ("townsville", {("trunk", "reticulation"): 441, ("trunk", "hydrant"): 77,
+                    ("raw", "reticulation"): 6, ("raw", "distribution"): 5, ("raw", "trunk"): 1}),
+    ("wellington", {("trunk", "customer"): 759, ("trunk", "hydrant"): 444,
+                    ("trunk", "distribution"): 309, ("trunk", "rider"): 51}),
+])
+def test_connection_table(name, expected):
+    from collections import Counter
+
+    result = check_network(city(name), load_mapping(EXAMPLES / f"{name}.yaml"),
+                           run_epanet=False)
+    found = Counter(tuple(i.data["never"]) for i in result.issues if i.rule == "WG-18")
+    # the council edits its data weekly: allow some drift
+    for pair, count in expected.items():
+        assert abs(found[pair] - count) <= max(10, count // 10), (pair, found[pair])
+    assert set(found) == set(expected)

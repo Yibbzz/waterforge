@@ -12,8 +12,8 @@ First version, built from the brief (docs/brief.md) and the open-water-checks ev
 
 ### Added
 - `waterforge check`: a drinking water network's GIS layers, read through a YAML field
-  mapping from GeoPackage, Shapefile, File Geodatabase or PostGIS, checked against 26 rules:
-  9 from EPANET's requirements (WE) and 17 GIS rules (WG). Issues name their rule, features,
+  mapping from GeoPackage, Shapefile, File Geodatabase or PostGIS, checked against 27 rules:
+  9 from EPANET's requirements (WE) and 18 GIS rules (WG). Issues name their rule, features,
   location and the GIS issues that cause them. JSON events, a report file and an issues
   GeoPackage for QGIS.
 - The conversion to an EPANET model in documented steps on the engine's own copy (the
@@ -23,6 +23,13 @@ First version, built from the brief (docs/brief.md) and the open-water-checks ev
 - `customers:` layers (meters, properties, buildings or service connections; any geometry)
   add demand at the nearest junction: mapped, else `customer_demand` (0.007 L/s). A layer
   may be mapped twice (Wellington: service connections from the pipe layer).
+- WG-18, the connection table: pipe classes (`class:` on a pipe layer, the utility's own
+  names) and a `connections:` table of what must never meet (`never: [trunk, hydrant]`,
+  optionally `unless: valve`), in the mapping or a rule pack.
+- `settings.total_demand` (L/s): demands scaled to a published total (e.g. a utility's yearly
+  supply), keeping their proportions, or spread evenly when there are none. The example
+  mappings use Wellington City's 2024/25 total (941 L/s) and Townsville's metered 2024/25
+  consumption (1,186 L/s).
 - `check --solve`: each area below zero pressure is its own WE-09 issue, naming the nearest pump
   station within 1 km (where pumps are probably missing from the model).
 - A source with no head or levels takes the DEM's ground plus `source_above_ground` (5 m).

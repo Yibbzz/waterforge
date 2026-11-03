@@ -1,5 +1,7 @@
 """Valves, pumps, sources, elevations and demands in the model (conversion steps 4, 6, 8)."""
 
+import pytest
+
 from tests.helpers import BASE_PIPES, BASE_POINTS, line, point, rules, run
 
 
@@ -308,3 +310,24 @@ def point_geom(dx, dy):
 
     from tests.helpers import X, Y
     return shapely.Point(X + dx, Y + dy)
+
+
+# Total demand: a published supply figure spread over the junctions --------------------------
+
+@pytest.mark.parametrize("demands, expected", [
+    ((0.0, 0.0, 0.0), {"A": 0.75, "B": 0.75, "C": 0.75, "D": 0.75}),  # none: spread evenly
+    ((1.0, 0.0, 3.0), {"A": 0.0, "B": 0.75, "C": 0.0, "D": 2.25}),    # scaled, same shares
+])
+def test_total_demand_scales_the_demands(tmp_path, demands, expected):
+    from tests.helpers import X, Y, point, run
+
+    junctions = [(1, point(100, 0), 10.0, demands[0]), (2, point(200, 0), 10.0, demands[1]),
+                 (3, point(100, -80), 10.0, demands[2])]
+    result = run(tmp_path, BASE_PIPES, settings={"total_demand": 3.0}, epanet=False,
+                 junctions=junctions, **BASE_POINTS)
+    j = result.model.junctions
+    at = dict(zip(zip((j.x - X).round(), (j.y - Y).round()), j.demand))
+    where = {"A": (0.0, 0.0), "B": (100.0, 0.0), "C": (200.0, 0.0), "D": (100.0, -80.0)}
+    assert {k: round(at[v], 6) for k, v in where.items()} == expected
+    assert result.model.changes["total_demand_lps"] == 3.0
+    assert result.model.changes["demand_before_total_lps"] == sum(demands)

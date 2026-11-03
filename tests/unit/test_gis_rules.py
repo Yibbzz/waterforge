@@ -401,3 +401,107 @@ def test_wg17_tolerance_is_a_setting(tmp_path):
     result = run(tmp_path, BASE_PIPES, settings=settings, junctions=levels(18.0, 18.4, -40.0),
                  **BASE_POINTS)
     assert [i.features[0]["id"] for i in rules(result, "WG-17")] == [3]
+
+
+# WG-18 connection table -------------------------------------------------------------
+
+CLASSED = [{"layer": "pipes", "id": "pid", "diameter": "dia",
+            "class": {"field": "pid", "values": {1: "trunk", 2: "trunk", 3: "distribution"}}}]
+
+
+def run_classed(tmp_path, connections, pipes=BASE_PIPES, customers=(), **points):
+    import geopandas as gpd
+    import shapely
+
+    from tests.helpers import CRS, make_network, mapping
+    from waterforge.check import check_network
+
+    path = make_network(tmp_path, pipes, **points)
+    extra = {"pipes": CLASSED, "connections": connections}
+    if customers:
+        gpd.GeoDataFrame({"cid": [c[0] for c in customers]},
+                         geometry=[shapely.from_wkt(c[1]) for c in customers],
+                         crs=CRS).to_file(path, layer="customers", driver="GPKG")
+        extra["customers"] = [{"layer": "customers", "id": "cid"}]
+    return check_network(path, mapping(**extra), run_epanet=False)
+
+
+def test_wg18_no_table_no_rule(tmp_path):
+    assert rules(run_classed(tmp_path, None, **BASE_POINTS), "WG-18") == []
+
+
+def test_wg18_pipe_classes_that_must_not_meet(tmp_path):
+    result = run_classed(tmp_path, [{"never": ["trunk", "distribution"]}], **BASE_POINTS)
+    [issue] = rules(result, "WG-18")
+    assert issue.severity == "error"
+    assert sorted(f["id"] for f in issue.features) == [1, 2, 3]
+    assert issue.data == {"never": ["trunk", "distribution"], "unless": []}
+    assert "meets distribution pipe 3" in issue.message
+    # pieces of one pipe never count as meeting each other
+    assert rules(run_classed(tmp_path, [{"never": ["distribution", "distribution"]}],
+                             **BASE_POINTS), "WG-18") == []
+
+
+def test_wg18_unless_a_valve_is_there(tmp_path):
+    table = [{"never": ["trunk", "distribution"], "unless": "valve"}]
+    open_valve = {**BASE_POINTS, "valves": [(1, point(100, 0), "open")]}
+    assert rules(run_classed(tmp_path, table, **open_valve), "WG-18") == []
+    [issue] = rules(run_classed(tmp_path, table, **BASE_POINTS), "WG-18")
+    assert "with no valve there" in issue.message
+
+
+def test_wg18_pipes_joined_through_a_control_valve_dont_meet(tmp_path):
+    pipes = [BASE_PIPES[0], (3, line((100, 0), (200, 0)), 150)]  # trunk A-B, distribution B-C
+    points = {"fittings": [(2, point(200, 0), "end cap")],
+              "structures": BASE_POINTS["structures"],
+              "valves": [(1, point(100, 0), "open", "prv", 30)]}
+    table = [{"never": ["trunk", "distribution"]}]
+    assert rules(run_classed(tmp_path, table, pipes=pipes, **points), "WG-18") == []
+    points["valves"] = []
+    assert len(rules(run_classed(tmp_path, table, pipes=pipes, **points), "WG-18")) == 1
+
+
+def test_wg18_point_asset_on_a_pipe_class(tmp_path):
+    points = {**BASE_POINTS, "hydrants": [(1, point(50, 0)), (2, point(100, -60))]}
+    [issue] = rules(run_classed(tmp_path, [{"never": ["trunk", "hydrant"]}], **points),
+                    "WG-18")
+    assert issue.features == [{"layer": "hydrants", "id": 1}, {"layer": "pipes", "id": 1}]
+    assert issue.message.startswith("Hydrant 1 is on trunk pipe 1")
+    # a type works as well as a kind: the end cap at C is on trunk pipe 2; the tee at B
+    # is where trunk and distribution pipes meet, so it isn't counted as on the trunk
+    table = [{"never": ["end cap", "trunk"]}, {"never": ["tee", "trunk"]}]
+    [cap] = rules(run_classed(tmp_path, table, **BASE_POINTS), "WG-18")
+    assert cap.features == [{"layer": "fittings", "id": 2}, {"layer": "pipes", "id": 2}]
+
+
+def test_wg18_service_connection_on_a_trunk_main(tmp_path):
+    from tests.helpers import X, Y
+
+    customers = [("on-trunk", f"LINESTRING ({X + 150} {Y + 20}, {X + 150} {Y})"),
+                 ("on-dist", f"LINESTRING ({X + 120} {Y - 40}, {X + 100} {Y - 40})"),
+                 ("meter", f"POINT ({X + 60} {Y + 15})")]  # at the property: not checked
+    result = run_classed(tmp_path, [{"never": ["trunk", "customer"]}], customers=customers,
+                         **BASE_POINTS)
+    [issue] = rules(result, "WG-18")
+    assert issue.features[0] == {"layer": "customers", "id": "on-trunk"}
+    assert "Customer on-trunk is on trunk pipe 2" in issue.message
+
+
+def test_wg09_pipe_class_not_in_the_mapping(tmp_path):
+    from tests.helpers import make_network, mapping
+    from waterforge.check import check_network
+
+    path = make_network(tmp_path, BASE_PIPES, **BASE_POINTS)
+    pipes = [{**CLASSED[0], "class": {"field": "pid", "values": {1: "trunk"}}}]
+    result = check_network(path, mapping(pipes=pipes), run_epanet=False)
+    found = rules(result, "WG-09")  # one per value not listed: pid 2 and 3
+    assert [i.features for i in found] == [[{"layer": "pipes", "id": 2}],
+                                           [{"layer": "pipes", "id": 3}]]
+    assert all("pipe classes" in i.message and i.severity == "warning" for i in found)
+    assert list(result.model.links.pipe_class.dropna().unique()) == ["trunk"]
+    with_default = [{**CLASSED[0], "class": {"field": "pid", "values": {1: "trunk"},
+                                             "default": "distribution"}}]
+    result = check_network(path, mapping(pipes=with_default), run_epanet=False)
+    assert rules(result, "WG-09") == []
+    links = result.model.links
+    assert set(links[links.kind == "pipe"].pipe_class) == {"trunk", "distribution"}

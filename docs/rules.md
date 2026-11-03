@@ -56,6 +56,7 @@ resolved; only new ones fail (`--fail-on new`, the default). See
 | [WG-15](#wg-15) | An in-use pipe names an in-use node at each end | GIS rule | Map | Warning |
 | [WG-16](#wg-16) | A tank or reservoir is joined to the network | GIS rule; cause of WE-08 | Map | Error |
 | [WG-17](#wg-17) | A recorded elevation is close to the terrain (DEM) | GIS rule | Map | Warning |
+| [WG-18](#wg-18) | Assets meet only as the mapping's connection table allows | GIS rule | Map | Error |
 
 ## From GIS to EPANET: the conversion steps
 
@@ -73,6 +74,7 @@ copy: **the source data is never modified**. Each can be switched off in a rule 
 | Sources | A tank or reservoir on a pipe end is that node; one beside the pipes joins the nearest pipe end within reach | `join_sources` (on), `source_reach` (25 m) | WG-16 |
 | Fill sizes | A pipe with no usable diameter gets a default | `fill_sizes` (off for `check`, on for `export`), `default_size_mm` (100) | WG-08, WG-09 |
 | Elevations and demands | Junctions take the elevation and demand of point assets within `at_asset`, plus the demand of every customer (`customers:` layers) nearest to them within `customer_reach` (50 m; a customer with no demand mapped gets `customer_demand`, 0.007 L/s); one with no elevation is sampled from a DEM if given (`--dem`, needs `waterforge[dem]`), else takes the nearest known one | `dem`, `fill_elevations` (on) | counted in the summary |
+| Total demand | With `total_demand` set (L/s, e.g. a utility's published yearly supply), every junction's demand is scaled so they add up to it, keeping their proportions; with no demands at all it is spread evenly over the junctions | `total_demand` (0: off) | counted in the summary |
 
 Detection always runs: a step that is off only stops the change. With `split_side_joins: false`
 the side join is still reported as WG-12, and EPANET then sees the unfed piece (WE-08).
@@ -397,6 +399,41 @@ Measured on Wellington (30 October 2026) with LINZ's Wellington City 1 m DEM (20
 recorded levels, 95% are within 0.5 m of the DEM; 126 are more than 5 m off, most of them in
 batches (six hydrants with consecutive ids all 78 m below the ground; a run of new fittings
 about 13 m above it), and one fitting recorded at 168,367 m.
+
+### WG-18
+
+**Assets meet only as the mapping's connection table allows.** Runs only when the mapping (or
+a rule pack) has a `connections:` table. Pipes get a class from the mapping (`class:` on a
+pipe layer: the utility's own names, such as trunk, distribution, rider); each entry in the
+table names two things that must never meet, and optionally what makes it allowed:
+
+```yaml
+connections:
+  - never: [trunk, hydrant]            # a hydrant on a trunk main
+  - never: [trunk, customer]           # a service connection on a trunk main
+  - never: [trunk, distribution]       # trunk to distribution only through a valve
+    unless: valve
+```
+
+At least one of the two is a pipe class; the other is a pipe class or a point asset: an asset
+kind (hydrant, valve, fitting, pump, structure, junction, customer) or a type (prv, end cap,
+tank, ...). `unless` lists point assets.
+
+- **Pipe with pipe:** pipes of the two classes that share a junction in the model. A closed
+  valve, control valve or pump is a link in the model, so pipes joined through one don't
+  share a junction; an open isolation valve isn't in the model, so `unless: valve` covers it
+  (a valve within `at_asset` of the junction).
+- **Pipe with point asset:** the asset on a pipe of the class: the pipe nearest to it, within
+  `at_asset`. One where pipes of other classes are as near (where they meet) isn't counted. A customer
+  counts where it takes its water: a service connection at its end nearest a pipe. A customer
+  drawn as a point at the property is usually farther away and isn't checked.
+
+Each finding is an **Error** by default (it is the utility's own rule), with the table entry in
+`data`. Pipes with no class are skipped; a class value the mapping doesn't list is WG-09.
+
+This is the open counterpart of the connectivity rules in Esri's Utility Network, written as
+a list of what is not allowed rather than everything that is: a utility's GIS has far more
+allowed pairs than forbidden ones.
 
 
 ## Proposed changes

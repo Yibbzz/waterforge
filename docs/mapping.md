@@ -19,6 +19,10 @@ pipes:                       # lines; at least one pipe layer is required
     id: ASSET_NUMBER         # names the feature in every issue
     diameter: PIPE_SIZE      # a number, or text such as "150" or "1000+"
     material: PIPE_MAT       # optional
+    class:                   # optional: the pipe's class, in your own words, for the
+      field: PIPE_TYPE       # connection table (WG-18)
+      values: {Trunk Main: trunk, Main: distribution, Rider Main: rider}
+      default: distribution  # leave out to report values not listed (WG-09)
     start_node: start_node_id  # optional: recorded node at each end (WG-14, WG-15)
     end_node: end_node_id
 
@@ -114,6 +118,24 @@ they touch (within the tolerance). Open isolation valves aren't in the model eit
 - Every problem in the mapping is listed at once (exit code 3), including fields a layer
   doesn't have, with a suggestion when only the capitals differ.
 
+## Connection table
+
+Which assets must never meet (WG-18, [rules.md](rules.md#wg-18)). Each entry names two things:
+at least one a pipe class from `class:` above, the other a pipe class or a point asset (an
+asset kind such as hydrant, valve or customer, or a type such as prv or end cap). `unless`
+names point assets that make the meeting allowed.
+
+```yaml
+connections:
+  - never: [trunk, hydrant]
+  - never: [trunk, customer]
+  - never: [trunk, distribution]
+    unless: valve            # a valve at the junction makes it allowed
+```
+
+Names that are neither a mapped pipe class nor a point asset are reported with the other
+mapping problems. A rule pack may carry its own table; it replaces the mapping's.
+
 ## Proposals
 
 A proposed change (`check --proposed`) uses the same mapping. Its file may hold only some of
@@ -130,8 +152,8 @@ to the pipes' CRS.
 
 ## Rule packs
 
-Settings, conversion steps and severities, in the mapping or in a separate file given with
-`--rules` (which overrides the mapping):
+Settings, conversion steps, severities and the connection table, in the mapping or in a
+separate file given with `--rules` (which overrides the mapping):
 
 ```yaml
 settings:
@@ -148,6 +170,9 @@ settings:
   source_above_ground: 5.0 # m: ... but with a DEM: the ground there plus this
   customer_demand: 0.007   # L/s: a customer with no demand mapped (~600 L/day; set your own)
   customer_reach: 50.0     # m: a customer further than this from every junction adds nothing
+  total_demand: 0          # L/s: the network's total use, e.g. a published yearly supply
+                           # (including leakage) / seconds in a year; demands are scaled to
+                           # add up to it (spread evenly if there are none). 0 = off
   blank_node_values: ["", unknown, none, "null"]       # recorded node ids meaning "none"
   pump_power_kw: 10.0      # kW: a pump with no power mapped
   remove_field: remove     # in a proposal: the field marking features to remove

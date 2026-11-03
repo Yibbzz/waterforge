@@ -46,7 +46,7 @@ ASSET_OF_KIND = {"junctions": "junction", "fittings": "fitting", "valves": "valv
                  "hydrants": "hydrant", "pumps": "pump", "structures": "structure"}
 NUMBER_COLUMNS = list(NUMBER_FIELDS)
 PIPE_COLUMNS = ["layer", "fid", "part", "diameter_mm", "diameter_text", "material", "roughness",
-                "start_node", "end_node", "remove", "geometry"]
+                "start_node", "end_node", "pipe_class", "remove", "geometry"]
 POINT_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", *NUMBER_COLUMNS, "remove",
                  "geometry"]
 LINK_COLUMNS = ["asset", "layer", "fid", "asset_type", "closed", "setting", "power",
@@ -285,6 +285,7 @@ def _pipes(frame, spec, mapping, issues):
         "roughness": _numbers(frame, spec, "roughness", issues),
         "start_node": frame[spec.start_node].astype(object) if spec.start_node else None,
         "end_node": frame[spec.end_node].astype(object) if spec.end_node else None,
+        "pipe_class": _pipe_classes(frame, spec, issues),
         "remove": frame["remove"].to_numpy() if "remove" in frame else False,
         "geometry": frame.geometry.values,
     })
@@ -293,6 +294,29 @@ def _pipes(frame, spec, mapping, issues):
             issues.append(Issue("WG-08", "No material recorded", [feature(row.layer, row.fid)],
                                 shapely.get_point(row.geometry, 0)))
     return out
+
+
+def _pipe_classes(frame, spec, issues):
+    """Each pipe's class (trunk, distribution, ...: the mapping's own names), or None."""
+    m = spec.pipe_class
+    if m is None:
+        return None
+    if m.field is None:
+        return pd.Series(m.default, index=frame.index, dtype=object)
+    values = frame[m.field].map(normalise_value)
+    out = values.map(m.values)
+    unknown = out.isna() & frame[m.field].notna()
+    if m.default is None:
+        for _, group in frame[unknown].groupby(values[unknown]):
+            issues.append(Issue(
+                "WG-09", f"{m.field} = '{group[m.field].iloc[0]}' isn't in the mapping's pipe "
+                f"classes ({group.fid.nunique()} pipes); no class given, so the connection "
+                "rules (WG-18) skip them",
+                [feature(spec.layer, f) for f in group.fid.unique()[:200]],
+                shapely.get_point(group.geometry.iloc[0], 0), severity="warning"))
+    else:
+        out = out.fillna(m.default)  # values not listed, and blanks
+    return out.astype(object).where(out.notna(), None)
 
 
 def _diameters(frame, spec, mapping, issues):

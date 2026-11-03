@@ -86,3 +86,43 @@ def test_the_example_mappings_are_valid():
 
     for path in sorted((Path(__file__).parents[2] / "examples").glob("*.yaml")):
         load_mapping(path)
+
+
+CLASSES = {"layer": "p", "class": {"field": "kind", "values": {"TM": "trunk", "M": "main"}}}
+
+
+def test_connection_table_is_read():
+    m = parse_mapping({"pipes": [CLASSES], "connections": [
+        {"never": ["Trunk", "hydrant"]}, {"never": ["trunk", "main"], "unless": ["valve", "prv"]}]})
+    assert m.pipe_classes == {"trunk", "main"}
+    assert [c.as_dict() for c in m.connections] == [
+        {"never": ["trunk", "hydrant"], "unless": []},
+        {"never": ["trunk", "main"], "unless": ["valve", "prv"]}]
+
+
+def test_connection_table_problems_are_listed():
+    found = "\n".join(problems({"pipes": [CLASSES], "connections": [
+        {"never": ["trunk", "lamp post"]},
+        {"never": ["hydrant", "valve"]},
+        {"never": ["trunk"]},
+        {"never": ["trunk", "main"], "unless": "rider", "why": "x"},
+    ]}))
+    assert "'lamp post' is neither a pipe class" in found
+    assert "at least one of the two must be a pipe class" in found
+    assert "expected two names" in found
+    assert "unless: 'rider' is not a point asset" in found
+    assert "unknown key 'why'" in found
+
+
+def test_rule_pack_connection_table_replaces_the_mappings(tmp_path):
+    (tmp_path / "m.yaml").write_text(
+        "pipes: [{layer: p, class: {field: k, values: {T: trunk}}}]\n"
+        "connections: [{never: [trunk, hydrant]}]\n")
+    (tmp_path / "r.yaml").write_text("connections: [{never: [trunk, customer]}]\n")
+    m = load_mapping(tmp_path / "m.yaml", tmp_path / "r.yaml")
+    assert [c.never for c in m.connections] == [("trunk", "customer")]
+
+
+def test_total_demand_cant_be_negative():
+    assert "settings.total_demand can't be negative" in problems(
+        {"pipes": ["p"], "settings": {"total_demand": -1}})

@@ -99,6 +99,9 @@ _RULES = [
     Rule("WG-17", "gis", "A recorded elevation is close to the terrain (DEM)",
          "GIS rule: a level far from the ground is a typo, a wrong height datum or old survey; "
          "pressures in the model come from these levels", "Map", "warning"),
+    Rule("WG-18", "gis", "Assets meet only as the mapping's connection table allows",
+         "GIS rule: a utility's own connection table, e.g. no hydrant or service on a trunk "
+         "main, or trunk to distribution only through a valve", "Map", "error"),
 ]
 
 RULES: dict[str, Rule] = {rule.id: rule for rule in _RULES}

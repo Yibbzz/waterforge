@@ -35,8 +35,9 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   `remove=yes` removes, new ids add; pipes split where a proposed pipe meets an existing one's
   side), merged check, `label` (fingerprint match; WE-08 matched by its pipes).
 - `config.py` - the YAML mapping + rule pack (`load_mapping`, `parse_mapping`): layers per asset
-  kind (pipes, junctions, fittings, valves, hydrants, pumps, structures), number fields
-  (`NUMBER_FIELDS`), valve types, `Settings`, `Steps`, `severity`.
+  kind (pipes, junctions, fittings, valves, hydrants, pumps, structures, customers), number
+  fields (`NUMBER_FIELDS`), valve types, pipe `class:` (`LayerSpec.pipe_class`, free names),
+  `connections:` (`Connection`, WG-18), `Settings`, `Steps`, `severity`.
   Collects every problem and raises `MappingError`. Values compared via `normalise_value`.
   YAML reads `off` as False: handled for severities.
 - `inputs.py` - `read_network(source, mapping)`: GDAL via pyogrio, `where` per layer, CRS
@@ -49,8 +50,9 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
   `side_joins`, `nearest`. Never round to a grid; never multiply raw coordinates.
 - `convert.py` - `build_model`: the conversion steps (short pipes out, split side joins, cut
   rings, valves and pumps as links, join ends with sources clustered in, sources on pipe ends
-  = that node else joined within reach, fill sizes, junction elevations / demands), each
-  reporting issues. Works on a copy; the source is never modified.
+  = that node else joined within reach, fill sizes, junction elevations / demands, scaled to
+  `total_demand`), each reporting issues. `customer_points`: where customers take water.
+  Works on a copy; the source is never modified.
 - `model.py` - `Model`: junctions, reservoirs (tanks and reservoirs, `kind`), links (pipe /
   valve / pump / connector; `LINK_COLUMNS`) with source `layer`, `fid`, `part`, `piece`.
   Names J/R/P/V/U/L + number (EPANET-safe).
@@ -59,7 +61,7 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 - `rules/gis.py` - WG rules needing the joined network: lonely ends (WG-01/02), crossings
   (04), duplicates (05), fittings (07), points on pipes (03), size changes (11), node ids
   (14/15), recorded levels vs the DEM (17, only with `dem`; batches = levels within 100 m off
-  by the same amount within 1 m).
+  by the same amount within 1 m), the connection table (18, only with `connections:`).
 - `rules/epanet.py` - WE rules on the model; `valve_rules` (WE-04/05, exactly EPANET's
   valvecheck); `unfed` (WE-08) with cause links to GIS issues.
 - `oracle.py` - `write_inp` (junctions, reservoirs, tanks, pipes, valves, pumps),
@@ -136,6 +138,20 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
 - 2026-10-30: Wellington's open data has no pump duty data: pump_stations (36 in use) have
   empty duty_head_m / duty_flow_ls / power_kw; layer 10 "Potable Water Pump" has 11 pumps,
   none in use. Layer 11 "Potable Water Meter" (4,895, mostly commercial) has no readings.
+- 2026-11-03: WG-18 connection table (Next steps item, asked for by the user): pipe classes
+  are the utility's own names; the table lists what must **never** meet (`never: [a, b]`,
+  `unless:` point assets), not every allowed pair. Pipe-pipe = sharing a model junction (a
+  valve / pump link between them counts as "through" it); a point asset is on the nearest
+  pipe within `at_asset`, ties (where classes meet) not counted. Default Error. Example
+  tables are starters, not the utilities' policy: Wellington 1,563 findings (759 services,
+  444 hydrants on trunk mains: they do put hydrants on trunk mains), Townsville 530 (12 raw
+  water mains touching treated mains, most at one site).
+- 2026-11-03: `settings.total_demand` (user chose a city total over population x L/person):
+  demands scaled to it, keeping proportions. Wellington City 941 L/s (Wellington Water's
+  2024/25 Water Loss Overview: loss 18.7 ML/d = 23% -> 81.3 ML/d, use + leakage);
+  Townsville 1,186 L/s (metered 2024/25, 37,387,870 kL, data.gov.au CC BY 4.0; no leakage,
+  spread evenly: no customers layer). Wellington solve: 721 junctions below zero in 50 areas
+  (593 / 58 with the flat 600 L/day).
 - 2026-10-28: Wellington tanks: `twl_m` (top water level, m above datum, checked against the
   ground beside each tank) is the head; `elevation_m` is empty for tanks.
 
@@ -180,11 +196,12 @@ tests/realdata/README.md; ~2 min). Lint: `uv run ruff check .`. Coverage: `uv ru
    fold their answers in (defaults: 1 mm, 1 m, 25 m; split side joins; closed valves).
 2. Pump duty points for Wellington's stations (ask Wellington Water; the WE-09 areas name the
    stations that matter most); multi-point pump curves and patterns (the Solves level is a
-   single steady state). Demands are from customers layers (done 2026-10-30; real usage
-   figures still wanted). `--dem` and WG-17 done on Wellington (2026-10-30); WG-17's
-   batches could go to Wellington Water to confirm the cause.
+   single steady state). Demands: customers layers + published totals (done 2026-11-03);
+   Townsville publishes residential use by suburb (2019/20) if finer shares are wanted.
+   `--dem` and WG-17 done on Wellington (2026-10-30); WG-17's batches could go to
+   Wellington Water to confirm the cause.
 3. Release v0.1 once the brief's "Done for water" list is ticked (left: the modeller review
    and the tag: bump `version`, move CHANGELOG's Unreleased to [0.1.0], push `v0.1.0`;
    `.github/workflows/release.yml` builds and publishes the GitHub release).
-4. Later: a `connections:` rule table (which asset types may connect), Gusnet layers as an
-   output, the QGIS plugin in its own repo.
+4. Later: Gusnet layers as an output, the QGIS plugin in its own repo. The example
+   connection tables (WG-18) want the utilities' or a modeller's confirmation.

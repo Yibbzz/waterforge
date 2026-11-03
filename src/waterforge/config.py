@@ -18,6 +18,10 @@ conversion steps on or off, and change rule severities.
     settings: {tolerance: 0.001}
     steps: {split_side_joins: true}
     severity: {WG-04: off}
+    connections:                                      # WG-18: what must never meet
+      - never: [trunk, hydrant]
+      - never: [trunk, distribution]
+        unless: valve
 
 load_mapping() checks the whole file and raises MappingError listing every
 problem at once, so a user fixes them in one go.
@@ -33,7 +37,7 @@ from .errors import MappingError
 
 # Asset kinds the mapping can name, and the fields each may map.
 KIND_FIELDS = {
-    "pipes": {"diameter", "material", "start_node", "end_node", "roughness"},
+    "pipes": {"diameter", "material", "start_node", "end_node", "roughness", "class"},
     "junctions": {"elevation", "demand"},
     "fittings": {"type", "elevation"},
     "valves": {"closed", "type", "setting", "elevation"},
@@ -58,6 +62,10 @@ FITTING_TYPES = {"end cap", "tee", "cross", "bend", "reducer", "joint", "tapping
 STRUCTURE_TYPES = {"reservoir", "tank", "pump station", "other"}
 SOURCE_TYPES = {"reservoir", "tank"}
 SEVERITIES = {"error", "warning", "info", "off"}
+# Names a connection rule may use for point assets: an asset kind or an asset type.
+POINT_TERMS = ({"junction", "fitting", "valve", "hydrant", "pump", "structure", "customer"}
+               | FITTING_TYPES | VALVE_TYPES | STRUCTURE_TYPES)
+ANY = object()  # a value map whose targets are the user's own names (pipe classes)
 DIAMETER_UNITS = {"mm": 1.0, "m": 1000.0, "in": 25.4}
 
 
@@ -94,11 +102,13 @@ class LayerSpec:
     tank_diameter: str | None = None
     type: ValueMap | None = None
     closed: ValueMap | None = None
+    pipe_class: ValueMap | None = None   # `class:` in the YAML (pipes only)
 
     def source_fields(self) -> list[str]:
         """The source fields this layer reads."""
         names = [self.id] + [getattr(self, name) for name in PLAIN_FIELDS]
-        names += [m.field for m in (self.type, self.closed) if m is not None and m.field]
+        names += [m.field for m in (self.type, self.closed, self.pipe_class)
+                  if m is not None and m.field]
         return list(dict.fromkeys(n for n in names if n))
 
 
@@ -118,6 +128,9 @@ class Settings:
     customer_demand: float = 0.007  # L/s: a customer with no demand mapped (~600 L/day)
     customer_reach: float = 50.0    # m: a customer further from every junction adds nothing
     blank_node_values: tuple[str, ...] = ("", "unknown", "none", "null")
+    total_demand: float = 0.0       # L/s: the network's total use (e.g. a published yearly
+    #                                 supply figure); 0 = demands as mapped. Demands are
+    #                                 scaled to it, or spread evenly when there are none
     pump_power_kw: float = 10.0     # kW: a pump with no power recorded (no curves yet)
     remove_field: str = "remove"    # in a proposal: features to remove (yes / true / 1)
     dem: str = ""                   # a terrain raster for junctions with no elevation
@@ -138,12 +151,36 @@ class Steps:
 
 
 @dataclass(frozen=True)
+class Connection:
+    """WG-18: two things that must never meet (a pipe class and a pipe class or point asset),
+    except where one of `unless` (point assets) is there too."""
+
+    never: tuple[str, str]
+    unless: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict:
+        return {"never": list(self.never), "unless": list(self.unless)}
+
+
+@dataclass(frozen=True)
 class Mapping:
     layers: tuple[LayerSpec, ...]
     crs: str | None = None
     settings: Settings = field(default_factory=Settings)
     steps: Steps = field(default_factory=Steps)
     severity: dict[str, str] = field(default_factory=dict)
+    connections: tuple[Connection, ...] = ()
+
+    @property
+    def pipe_classes(self) -> set[str]:
+        """Every class the pipe layers can give."""
+        out = set()
+        for spec in self.of_kind("pipes"):
+            if spec.pipe_class is not None:
+                out |= set(spec.pipe_class.values.values())
+                if spec.pipe_class.default:
+                    out.add(spec.pipe_class.default)
+        return out
 
     def of_kind(self, kind: str) -> list[LayerSpec]:
         return [spec for spec in self.layers if spec.kind == kind]
@@ -165,13 +202,16 @@ def load_mapping(path: str | Path, rules: str | Path | None = None) -> Mapping:
     data = _read_yaml(path, "mapping")
     if rules is not None:
         pack = _read_yaml(rules, "rule pack")
-        extra = set(pack) - {"settings", "steps", "severity"}
+        extra = set(pack) - {"settings", "steps", "severity", "connections"}
         if extra:
-            raise MappingError([f"a rule pack may only hold settings, steps and severity, "
-                                f"not {', '.join(sorted(extra))}"], source="rule pack")
+            raise MappingError([f"a rule pack may only hold settings, steps, severity and "
+                                f"connections, not {', '.join(sorted(extra))}"],
+                               source="rule pack")
         for key in ("settings", "steps", "severity"):
             if key in pack:
                 data[key] = {**(data.get(key) or {}), **(pack[key] or {})}
+        if "connections" in pack:  # the pack's table replaces the mapping's
+            data["connections"] = pack["connections"]
     return parse_mapping(data)
 
 
@@ -180,7 +220,7 @@ def parse_mapping(data: dict) -> Mapping:
     problems: list[str] = []
     if not isinstance(data, dict):
         raise MappingError(["the file must be a YAML mapping (key: value lines)"])
-    known = set(KIND_FIELDS) | {"crs", "settings", "steps", "severity"}
+    known = set(KIND_FIELDS) | {"crs", "settings", "steps", "severity", "connections"}
     for key in sorted(set(data) - known):
         problems.append(f"unknown section '{key}' (expected one of: {', '.join(sorted(known))})")
 
@@ -204,6 +244,8 @@ def parse_mapping(data: dict) -> Mapping:
     if settings.diameter_units not in DIAMETER_UNITS:
         problems.append(f"settings.diameter_units: '{settings.diameter_units}' is not one of "
                         f"{', '.join(DIAMETER_UNITS)}")
+    if settings.total_demand < 0:
+        problems.append("settings.total_demand can't be negative")
     for name in ("tolerance", "near_miss", "at_asset", "structure_reach", "source_reach",
                  "dem_tolerance", "customer_reach"):
         if not getattr(settings, name) > 0:
@@ -224,9 +266,54 @@ def parse_mapping(data: dict) -> Mapping:
         else:
             severity[rule] = level
 
+    connections = _connections(data.get("connections"), layers, problems)
     if problems:
         raise MappingError(problems)
-    return Mapping(tuple(layers), data.get("crs"), settings, steps, severity)
+    return Mapping(tuple(layers), data.get("crs"), settings, steps, severity, connections)
+
+
+def _connections(entries, layers, problems) -> tuple[Connection, ...]:
+    """The connection table (WG-18): each entry `never: [a, b]`, optionally `unless: x`."""
+    if entries is None:
+        return ()
+    if not isinstance(entries, list):
+        problems.append("connections: expected a list of 'never: [a, b]' entries")
+        return ()
+    classes = Mapping(tuple(layers)).pipe_classes
+    out = []
+    for n, entry in enumerate(entries, 1):
+        where = f"connections[{n}]"
+        if not isinstance(entry, dict) or "never" not in entry:
+            problems.append(f"{where}: expected 'never: [a, b]'")
+            continue
+        for key in sorted(set(entry) - {"never", "unless"}):
+            problems.append(f"{where}: unknown key '{key}' (allowed: never, unless)")
+        never = entry["never"]
+        if not isinstance(never, list) or len(never) != 2:
+            problems.append(f"{where}.never: expected two names, e.g. [trunk, hydrant]")
+            continue
+        never = tuple(str(v).strip().lower() for v in never)
+        unless = entry.get("unless") or []
+        unless = tuple(str(v).strip().lower() for v in
+                       (unless if isinstance(unless, list) else [unless]))
+        bad = False
+        for name in never:
+            if name not in classes and name not in POINT_TERMS:
+                problems.append(f"{where}.never: '{name}' is neither a pipe class in the "
+                                f"mapping ({', '.join(sorted(classes)) or 'none mapped'}) nor "
+                                "a point asset or type")
+                bad = True
+        if not bad and not any(name in classes for name in never):
+            problems.append(f"{where}.never: at least one of the two must be a pipe class")
+            bad = True
+        for name in unless:
+            if name not in POINT_TERMS:
+                problems.append(f"{where}.unless: '{name}' is not a point asset or type "
+                                "(e.g. valve, prv, reducer)")
+                bad = True
+        if not bad:
+            out.append(Connection(never, unless))
+    return tuple(out)
 
 
 def _read_yaml(path, what) -> dict:
@@ -263,6 +350,9 @@ def _layer(kind, n, entry, problems) -> LayerSpec | None:
                                              problems))
     if "closed" in entry:
         spec = replace(spec, closed=_value_map(f"{where}.closed", entry["closed"], None, problems))
+    if "class" in entry:
+        spec = replace(spec, pipe_class=_value_map(f"{where}.class", entry["class"], ANY,
+                                                   problems))
     if kind == "structures" and spec.type is None:
         problems.append(f"{where}: structures need 'type' (which are reservoirs, tanks, ...)")
     return spec
@@ -271,7 +361,7 @@ def _layer(kind, n, entry, problems) -> LayerSpec | None:
 def _value_map(where, entry, allowed, problems) -> ValueMap | None:
     if isinstance(entry, str) and allowed is not None:  # one type for the whole layer
         value = entry.strip().lower()
-        if value not in allowed:
+        if allowed is not ANY and value not in allowed:
             problems.append(f"{where}: '{value}' is not one of {', '.join(sorted(allowed))}")
         return ValueMap(None, {}, value)
     if not isinstance(entry, dict) or "field" not in entry:
@@ -291,14 +381,14 @@ def _value_map(where, entry, allowed, problems) -> ValueMap | None:
     values = {}
     for source, target in raw.items():
         target = str(target).strip().lower()
-        if target not in allowed:
+        if allowed is not ANY and target not in allowed:
             problems.append(f"{where}.values: '{target}' is not one of "
                             f"{', '.join(sorted(allowed))}")
         values[normalise_value(source)] = target
     default = entry.get("default")
     if default is not None:
         default = str(default).strip().lower()
-        if default not in allowed:
+        if allowed is not ANY and default not in allowed:
             problems.append(f"{where}.default: '{default}' is not one of "
                             f"{', '.join(sorted(allowed))}")
     return ValueMap(str(entry["field"]), values, default)

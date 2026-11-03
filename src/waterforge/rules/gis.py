@@ -1,7 +1,8 @@
 """
 GIS rules (WG) that look at the network as joined: lonely ends, near misses,
-crossings, duplicates, fittings, recorded node ids and recorded elevations
-against a terrain model (WG-17, only with a DEM).
+crossings, duplicates, fittings, recorded node ids, recorded elevations
+against a terrain model (WG-17, only with a DEM) and the mapping's connection
+table (WG-18, only with one).
 
 The rules found while reading (WG-06, WG-08, WG-09, in inputs.py) and while
 converting (WG-06, WG-10, WG-12, WG-13, WG-16, in convert.py) are reported
@@ -18,6 +19,7 @@ import shapely
 
 from ..config import Mapping, normalise_value
 from ..connectivity import nearest_distance, node_ids, pipe_ends
+from ..convert import customer_points
 from ..inputs import Network
 from ..issues import Issue, feature
 from ..model import Model
@@ -35,6 +37,8 @@ def check(network: Network, model: Model, mapping: Mapping) -> list[Issue]:
         issues += node_id_checks(network, mapping)
     if mapping.settings.dem:
         issues += dem_levels(network, mapping)
+    if mapping.connections:
+        issues += connections(network, model, mapping)
     return issues
 
 
@@ -417,4 +421,115 @@ def dem_levels(network: Network, mapping: Mapping) -> list[Issue]:
                                   "dem_m": round(float(ground[i]), 3),
                                   "difference_m": round(float(d[k]), 3), "batch_size": n,
                                   "batch_difference_m": round(float(typical[batch[k]]), 3)}))
+    return issues
+
+
+def _points_named(network: Network, names) -> pd.DataFrame:
+    """Point assets (and customers) matching any of `names`: an asset kind or asset type."""
+    names = set(names)
+    pts = network.points
+    out = pts.loc[pts.asset.isin(names) | pts.asset_type.isin(names),
+                  ["asset", "asset_type", "layer", "fid", "geometry"]]
+    customers = network.customers
+    if "customer" in names and customers is not None and len(customers):
+        out = pd.concat([out, pd.DataFrame({
+            "asset": "customer", "asset_type": "customer", "layer": customers.layer.values,
+            "fid": customers.fid.values, "geometry": customer_points(network)})],
+            ignore_index=True)
+    return out.reset_index(drop=True)
+
+
+def _excused(where, unless, network, s) -> np.ndarray:
+    """For each point: is one of the `unless` assets within at_asset of it?"""
+    if not unless or len(where) == 0:
+        return np.zeros(len(where), bool)
+    near = _points_named(network, unless)
+    return nearest_distance(where, near.geometry.values) <= s.at_asset
+
+
+def _asset_name(row) -> str:
+    if row.asset == "valve" and row.asset_type != "isolation":
+        return f"{row.asset_type.upper()} {row.fid}"
+    if row.asset in ("fitting", "structure"):
+        return f"{row.asset_type.capitalize()} {row.fid}"
+    return f"{row.asset.capitalize()} {row.fid}"
+
+
+def connections(network: Network, model: Model, mapping: Mapping) -> list[Issue]:
+    """WG-18: the mapping's connection table: pipe classes, or a pipe class and a point
+    asset, that must never meet (except where an `unless` asset is there)."""
+    s = mapping.settings
+    classes = mapping.pipe_classes
+    issues = []
+
+    # pipe with pipe: pipes of the two classes sharing a model junction. A valve or pump
+    # in the model sits between two junctions, so pipes joined through one never share one.
+    links = model.links
+    pipes = links[(links.kind == "pipe") & links.pipe_class.notna()].reset_index(drop=True)
+    ends = pd.DataFrame({"node": np.concatenate([pipes.start.values, pipes.end.values]),
+                         "row": np.tile(np.arange(len(pipes)), 2)})
+    ends["cls"] = pipes.pipe_class.values[ends.row.values]
+    xy = pd.concat([model.junctions.set_index("name")[["x", "y"]],
+                    model.reservoirs.set_index("name")[["x", "y"]]])
+    for rule in mapping.connections:
+        a, b = rule.never
+        if not (a in classes and b in classes):
+            continue
+        side_a, side_b = ends[ends.cls == a], ends[ends.cls == b]
+        pairs = side_a.merge(side_b, on="node")
+        same = ((pipes.layer.values[pairs.row_x] == pipes.layer.values[pairs.row_y])
+                & (pipes.fid.values[pairs.row_x] == pipes.fid.values[pairs.row_y]))
+        pairs = pairs[~same]
+        if pairs.empty:
+            continue
+        nodes = pairs.node.unique()
+        at = shapely.points(xy.loc[nodes, "x"].to_numpy(), xy.loc[nodes, "y"].to_numpy())
+        excused = dict(zip(nodes, _excused(at, rule.unless, network, s)))
+        where = dict(zip(nodes, at))
+        for node, group in pairs.groupby("node", sort=False):
+            if excused[node]:
+                continue
+            rows = pipes.iloc[np.unique(np.concatenate([group.row_x, group.row_y]))]
+            feats = list({(r.layer, r.fid): feature(r.layer, r.fid)
+                          for r in rows.itertuples()}.values())
+            first = rows[rows.pipe_class == a].fid.iloc[0]
+            second = rows[rows.pipe_class == b].fid.iloc[0]
+            but = f" with no {' or '.join(rule.unless)} there" if rule.unless else ""
+            issues.append(Issue(
+                "WG-18", f"{a.capitalize()} pipe {first} meets {b} pipe {second}{but}: the "
+                f"connection table says {a} and {b} never meet", feats, where[node],
+                data=rule.as_dict()))
+
+    # pipe with point asset: the asset within at_asset of a pipe of the class
+    geoms = network.pipes.geometry.values
+    pipe_cls = network.pipes.pipe_class.to_numpy() if "pipe_class" in network.pipes \
+        else np.full(len(geoms), None)
+    tree = shapely.STRtree(geoms)
+    for rule in mapping.connections:
+        a, b = rule.never
+        if (a in classes) == (b in classes):
+            continue
+        cls, term = (a, b) if a in classes else (b, a)
+        pts = _points_named(network, [term])
+        if pts.empty or len(geoms) == 0:
+            continue
+        # the asset is on the pipe nearest to it; where pipes of other classes are as near
+        # (it sits where they meet), it isn't counted
+        (near_pt, near_pipe) = tree.query_nearest(pts.geometry.values, max_distance=s.at_asset,
+                                                  all_matches=True)
+        match = pd.Series(pipe_cls[near_pipe] == cls).groupby(near_pt).all()
+        hit_pt = match.index[match.to_numpy()].to_numpy()
+        first = pd.Series(near_pipe).groupby(near_pt).first()
+        hit_pipe = first.loc[hit_pt].to_numpy()
+        excused = _excused(pts.geometry.values[hit_pt], rule.unless, network, s)
+        for i, j, skip in zip(hit_pt, hit_pipe, excused):
+            if skip:
+                continue
+            row, pipe = pts.iloc[i], network.pipes.iloc[j]
+            but = f" with no {' or '.join(rule.unless)} there" if rule.unless else ""
+            issues.append(Issue(
+                "WG-18", f"{_asset_name(row)} is on {cls} pipe {pipe.fid}{but}: the connection "
+                f"table says {cls} pipes and {term} never meet",
+                [feature(row.layer, row.fid), feature(pipe.layer, pipe.fid)], row.geometry,
+                data=rule.as_dict()))
     return issues

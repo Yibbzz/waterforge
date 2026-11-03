@@ -21,6 +21,7 @@ the Utility Network leaves to partner add-ons.
 | Point devices on lines | A valve or fitting must sit on a vertex or pipe end to be connected | WG-03 | `test_wg03_*` |
 | Connectivity rules: what may end where | A pipe may end at an end cap, a hydrant, a structure | WG-01 with `allowed_end_assets` | `test_wg01_*` |
 | Connectivity rules: device connections | A fitting's number of connections suits its type; a valve has one pipe each side | WG-07, WG-10 | `test_wg07_*`, `test_wg10_*` |
+| Connectivity rules: which asset types may connect | The utility's own table: no hydrant or service on a trunk main, raw water never joins treated mains, trunk to distribution only through a valve. Written as what must never meet (with exceptions), not every allowed pair | WG-18 with pipe `class:` and `connections:` | `test_wg18_*` |
 | Error features: dangles | A pipe end that meets nothing | WG-01 (and WG-02 for near misses, which the Utility Network doesn't separate) | `test_wg01_*`, `test_wg02_*` |
 | Error features: geometry | Empty, multi-part or zero-length lines; duplicate features | WG-06, WG-05 | `test_wg06_*`, `test_wg05_*` |
 | Error features: crossings | Lines crossing with no junction | WG-04 (with fittings as evidence) | `test_wg04_*` |
@@ -44,7 +45,7 @@ the Utility Network leaves to partner add-ons.
 
 | Capability | Why | Where it could go |
 | --- | --- | --- |
-| A rule table of which asset types may connect to which (beyond end assets and fittings) | Water version 1 needs only what EPANET and the WG rules need | A `connections:` section in the rule pack |
+| Point-to-point connection rules (e.g. which valve types may sit next to each other) | WG-18 covers pipe classes with pipes and point assets; EPANET's own valve rules are WE-04 / WE-05 | Extend `connections:` |
 | Associations: containment (a chamber holds valves), attachment, structural | Out of scope for water version 1 (brief) | A later version |
 | Terminals (sides of a device) | Not needed for water; needed for electric | The electric phase |
 | Subnetworks, tiers and tracing (upstream, isolation, valve isolation) | Analysis is out of scope (brief) | WNTR's valve segmentation could build on the model |
