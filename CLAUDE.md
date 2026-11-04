@@ -112,7 +112,7 @@ tests/realdata/README.md; ~10 min). Lint: `uv run ruff check .`. Coverage: `uv r
   nearest-known fill.
 - 2026-10-30: `--dem` takes a folder of tiles too (LINZ publishes 1 m DEMs as tiles). On
   Wellington, LINZ's Wellington City 1 m DEM (2025) fills all 17,045 junctions with no level;
-  where levels are recorded it agrees (median 7 cm, 95% within 0.5 m), while the nearest-known
+  where levels are recorded it agrees (median gap 12 cm, 95% within 0.5 m), while the nearest-known
   fill it replaces is > 10 m off at 2,129 junctions.
 - 2026-10-30: WG-17 (not in the brief, asked for by the user): recorded elevation vs DEM,
   default 5 m, Warning (the DEM can be the wrong one). The model keeps the recorded level.
