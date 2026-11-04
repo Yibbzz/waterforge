@@ -143,7 +143,7 @@ tests/realdata/README.md; ~10 min). Lint: `uv run ruff check .`. Coverage: `uv r
   pipe within `at_asset`, ties (where classes meet) not counted. Default Error. Example
   tables are starters, not the utilities' policy: Wellington 1,563 findings (759 services,
   444 hydrants on trunk mains: they do put hydrants on trunk mains), Townsville 530 (12 raw
-  water mains touching treated mains, most at one site).
+  water mains touching treated mains, 5 of them at one site).
 - 2026-11-03: `settings.total_demand` (user chose a city total over population x L/person):
   demands scaled to it, keeping proportions. Wellington City 941 L/s (Wellington Water's
   2024/25 Water Loss Overview: loss 18.7 ML/d = 23% -> 81.3 ML/d, use + leakage);
@@ -198,6 +198,10 @@ tests/realdata/README.md; ~10 min). Lint: `uv run ruff check .`. Coverage: `uv r
 - Townsville reuses `ASSET_NUMBER` 0 for many mains: report per original row, not per id.
 
 ## Next steps (in order)
+
+2026-11-04: questions emailed, answers awaited: Wellington Water (pump duty points, levels
+far from the DEM, connection rules, total demand), Water NZ's Modelling Group (a modeller
+review of the defaults) and Townsville City Council (raw water mains, connection rules).
 
 1. A modeller reviews the rules on real data (a summary doc for modellers, shared separately);
    fold their answers in (defaults: 1 mm, 1 m, 25 m; split side joins; closed valves).
