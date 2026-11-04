@@ -116,8 +116,8 @@ tests/realdata/README.md; ~10 min). Lint: `uv run ruff check .`. Coverage: `uv r
   fill it replaces is > 10 m off at 2,129 junctions.
 - 2026-10-30: WG-17 (not in the brief, asked for by the user): recorded elevation vs DEM,
   default 5 m, Warning (the DEM can be the wrong one). The model keeps the recorded level.
-  Wellington: 126 flagged, 92 of them in 9 batches (largest 41 at +12.6 m; 9 hydrants at
-  -78 m), 34 alone (one typo: 168,367 m).
+  Wellington: 126 flagged, 92 of them in 9 batches (largest 41 at +12.6 m; 11 hydrants at
+  -78 m, WCC_PW161847-57, in batches of 9 and 2), 34 alone (one typo: 168,367 m).
 - 2026-10-30: the Solves level runs on the fed part only (`check.fed_part`): unfed pieces
   (WE-08) are left out and reported in WE-09's `data.left_out`. Both cities now run (before:
   error 110). Wellington's static pressures go below zero at 557 junctions (DEM on): 9 sources
