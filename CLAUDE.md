@@ -147,9 +147,13 @@ tests/realdata/README.md; ~10 min). Lint: `uv run ruff check .`. Coverage: `uv r
 - 2026-11-03: `settings.total_demand` (user chose a city total over population x L/person):
   demands scaled to it, keeping proportions. Wellington City 941 L/s (Wellington Water's
   2024/25 Water Loss Overview: loss 18.7 ML/d = 23% -> 81.3 ML/d, use + leakage);
-  Townsville 1,186 L/s (metered 2024/25, 37,387,870 kL, data.gov.au CC BY 4.0; no leakage,
-  spread evenly: no customers layer). Wellington solve: 721 junctions below zero in 50 areas
+  Townsville 1,186 L/s (metered 2024/25; replaced 2026-11-05, below). Wellington solve: 721 junctions below zero in 50 areas
   (593 / 58 with the flat 600 L/day).
+- 2026-11-05: Townsville `total_demand` 1,400 L/s = water produced 2025/26 (44,153 ML,
+  "Townsville City Council Water Production", data.gov.au CC BY 4.0, monthly; the council
+  pointed to it in reply to the 2026-11-04 email). Includes losses: 2024/25 produced
+  40,420 ML vs metered 37,388 ML (7.5% more). Spread evenly (no customers layer); Townsville
+  has no recorded elevations, so it only reaches the exported .inp.
 - 2026-11-03: **v0.1.0 released** before the modeller review (the user's choice): the
   review's answers go into 0.2.0 (before 1.0 a minor version may change flags / JSON, said in
   CHANGELOG). Releases: bump `version`, move CHANGELOG's Unreleased to `[x.y.z] - date`,

@@ -8,6 +8,12 @@ with a new major version (before 1.0: a new minor version, said here).
 
 ## [Unreleased]
 
+### Changed
+
+- The Townsville example mapping's `total_demand` is 1,400 L/s: water produced in 2025/26
+  (Townsville City Council Water Production, data.gov.au), which includes losses, instead
+  of 2024/25 metered consumption (1,186 L/s), as the council suggested.
+
 ## [0.1.0] - 2026-11-03
 
 First version, built from the brief (docs/brief.md) and the open-water-checks evaluation.

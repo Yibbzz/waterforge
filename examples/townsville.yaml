@@ -59,8 +59,9 @@ connections:
     unless: valve
 
 settings:
-  # Townsville's metered consumption, 2024/25: 37,387,870 kL over the four quarters
-  # (Townsville City Council Water Consumption, data.gov.au, CC BY 4.0) = 1,186 L/s.
-  # Metered use only: leakage isn't in it. No customers layer is mapped, so it is spread
-  # evenly over the junctions. https://data.gov.au/data/dataset/tcc-water-consumption
-  total_demand: 1186
+  # Water produced by Townsville's treatment plants, 2025/26: 44,153 ML over the twelve
+  # months (Townsville City Council Water Production, data.gov.au, CC BY 4.0) = 1,400 L/s.
+  # Use and losses (2024/25: produced 40,420 ML, metered 37,388 ML). No customers layer is
+  # mapped, so it is spread evenly over the junctions.
+  # https://data.gov.au/data/dataset/water-production
+  total_demand: 1400
